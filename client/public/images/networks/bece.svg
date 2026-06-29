@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" role="img" aria-label="BECE Result Checker">
+  <defs>
+    <linearGradient id="beceBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f5132"/>
+      <stop offset="100%" stop-color="#198754"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="600" fill="url(#beceBg)"/>
+  <circle cx="680" cy="120" r="90" fill="#ffffff" opacity="0.08"/>
+  <circle cx="120" cy="500" r="120" fill="#ffffff" opacity="0.06"/>
+  <text x="400" y="220" text-anchor="middle" fill="#ffffff" font-family="Inter, Arial, sans-serif" font-size="72" font-weight="800">BECE</text>
+  <text x="400" y="300" text-anchor="middle" fill="#d1e7dd" font-family="Inter, Arial, sans-serif" font-size="42" font-weight="700">RESULT CHECKER</text>
+  <rect x="250" y="360" width="300" height="6" rx="3" fill="#ffc107" opacity="0.9"/>
+  <text x="400" y="430" text-anchor="middle" fill="#ffffff" font-family="Inter, Arial, sans-serif" font-size="28" font-weight="600">WAEC Ghana</text>
+</svg>
