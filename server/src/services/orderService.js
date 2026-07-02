@@ -59,6 +59,11 @@ export const validateOrderInput = async (body, user) => {
 
   let promoResult = null;
   if (promoCode) {
+    const settings = await SiteSettings.findOne().lean();
+    if (!settings?.promoCheckoutEnabled) {
+      throw new AppError('Promo codes are not available at this time.', 400, 'PROMO_DISABLED');
+    }
+
     promoResult = await validatePromoCode({
       code: promoCode,
       packageId,
@@ -87,32 +92,45 @@ export const validateOrderInput = async (body, user) => {
   };
 };
 
-export const createOrder = async (validated, user) => {
+export const createOrder = async (validated, user, idempotencyKey) => {
   const { pkg, phone, email, promoResult, pricing, paystackCharge, totalAmount, afaDetails } = validated;
+
+  if (idempotencyKey) {
+    const existing = await Order.findOne({ idempotencyKey }).lean();
+    if (existing) return existing;
+  }
 
   const reference = generateReference('ORD');
   const paymentReference = generateReference('PAY');
 
-  const order = await Order.create({
-    reference,
-    user: user?._id || null,
-    email,
-    phone,
-    package: pkg._id,
-    packageName: pkg.name,
-    category: pkg.category,
-    serviceType: pkg.serviceType,
-    packagePrice: pricing.finalPrice,
-    paystackCharge,
-    totalAmount,
-    promoCode: promoResult?.promo.code || null,
-    promoDiscount: pricing.promoDiscount,
-    isFreeOrder: pricing.isFreeOrder,
-    paymentReference,
-    afaDetails: pkg.serviceType === 'afa_registration' ? afaDetails : undefined,
-  });
-
-  return order;
+  try {
+    const order = await Order.create({
+      reference,
+      user: user?._id || null,
+      email,
+      phone,
+      package: pkg._id,
+      packageName: pkg.name,
+      category: pkg.category,
+      serviceType: pkg.serviceType,
+      packagePrice: pricing.finalPrice,
+      paystackCharge,
+      totalAmount,
+      promoCode: promoResult?.promo.code || null,
+      promoDiscount: pricing.promoDiscount,
+      isFreeOrder: pricing.isFreeOrder,
+      paymentReference,
+      idempotencyKey: idempotencyKey || undefined,
+      afaDetails: pkg.serviceType === 'afa_registration' ? afaDetails : undefined,
+    });
+    return order;
+  } catch (err) {
+    if (err.code === 11000 && idempotencyKey) {
+      const existing = await Order.findOne({ idempotencyKey });
+      if (existing) return existing;
+    }
+    throw err;
+  }
 };
 
 export const fulfillOrder = async (orderId, io) => {

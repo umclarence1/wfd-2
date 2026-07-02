@@ -11,7 +11,8 @@ export default function HeroSlider() {
   const { data: apiSliders } = useQuery({
     queryKey: ['sliders'],
     queryFn: () => api.get('/public/sliders').then((r) => r.data.sliders),
-    staleTime: 0,
+    staleTime: 5 * 60 * 1000,
+    placeholderData: DEFAULT_SLIDER_SLIDES,
   });
 
   const sliders = apiSliders?.length ? apiSliders : DEFAULT_SLIDER_SLIDES;

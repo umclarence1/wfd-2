@@ -16,5 +16,6 @@ const promoRedemptionSchema = new mongoose.Schema(
 promoRedemptionSchema.index({ promoCode: 1, email: 1 });
 promoRedemptionSchema.index({ promoCode: 1, phone: 1 });
 promoRedemptionSchema.index({ promoCode: 1, user: 1 });
+promoRedemptionSchema.index({ order: 1 }, { unique: true, sparse: true });
 
 export default mongoose.model('PromoRedemption', promoRedemptionSchema);

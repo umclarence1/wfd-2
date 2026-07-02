@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import jwt from 'jsonwebtoken';
 import { env } from '../config/env.js';
 
 const tokens = new Map();
@@ -9,10 +10,22 @@ export const generateCsrfToken = (req, res) => {
   res.cookie('csrf-token', token, {
     httpOnly: false,
     secure: env.nodeEnv === 'production',
-    sameSite: 'strict',
+    sameSite: env.nodeEnv === 'production' ? 'none' : 'strict',
     maxAge: 60 * 60 * 1000,
+    path: '/',
   });
   return token;
+};
+
+const hasValidAccessSession = (req) => {
+  const token = req.cookies?.accessToken || req.headers.authorization?.replace('Bearer ', '');
+  if (!token) return false;
+  try {
+    jwt.verify(token, env.jwt.accessSecret);
+    return true;
+  } catch {
+    return false;
+  }
 };
 
 export const csrfProtection = (req, res, next) => {
@@ -21,7 +34,12 @@ export const csrfProtection = (req, res, next) => {
   const cookieToken = req.cookies['csrf-token'];
   const headerToken = req.headers['x-csrf-token'];
 
-  if (!cookieToken || !headerToken || cookieToken !== headerToken) {
+  if (cookieToken && headerToken && cookieToken === headerToken) {
+    // matched — continue below cleanup
+  } else if (hasValidAccessSession(req) && headerToken && /^[a-f0-9]{64}$/i.test(headerToken)) {
+    // Split client/server deploy: CSRF cookie may not round-trip through the proxy,
+    // but CORS blocks foreign origins from sending custom headers with credentials.
+  } else {
     return res.status(403).json({ success: false, message: 'Invalid CSRF token.' });
   }
 

@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../api/client';
 import { useToast } from '../../context/ToastContext';
 import AdminPageHeader from '../../components/admin/AdminPageHeader';
+import { SUPPORT_EMAIL } from '../../constants/brand';
 
 export default function AdminSettingsPage() {
   const { toast } = useToast();
@@ -72,7 +73,7 @@ export default function AdminSettingsPage() {
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
             <label className="mb-1 block text-sm font-medium text-gray-700">Contact Email</label>
-            <input className="input-field" value={form.contactEmail} onChange={(e) => setForm({ ...form, contactEmail: e.target.value })} />
+            <input className="input-field" placeholder={SUPPORT_EMAIL} value={form.contactEmail} onChange={(e) => setForm({ ...form, contactEmail: e.target.value })} />
           </div>
           <div>
             <label className="mb-1 block text-sm font-medium text-gray-700">Contact Phone</label>

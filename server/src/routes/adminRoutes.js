@@ -1,5 +1,4 @@
 import { Router } from 'express';
-import multer from 'multer';
 import xlsx from 'xlsx';
 import { v2 as cloudinary } from 'cloudinary';
 import Order from '../models/Order.js';
@@ -7,13 +6,18 @@ import Package from '../models/Package.js';
 import User from '../models/User.js';
 import Checker from '../models/Checker.js';
 import PromoCode from '../models/PromoCode.js';
+import PromoRedemption from '../models/PromoRedemption.js';
 import { generateUniquePromoCode, createBulkPromoCodes } from '../services/promoService.js';
 import Slider from '../models/Slider.js';
 import SiteSettings from '../models/SiteSettings.js';
 import AuditLog from '../models/AuditLog.js';
 import { AppError, asyncHandler } from '../middleware/errorHandler.js';
-import { protect, adminOnly, noCache } from '../middleware/auth.js';
+import { protect, adminOnly, noCache, requirePermission } from '../middleware/auth.js';
 import { logAudit } from '../middleware/audit.js';
+import { adminLimiter } from '../middleware/rateLimit.js';
+import { validateBody } from '../middleware/validate.js';
+import { promoBulkSchema, orderStatusUpdateSchema, orderBulkStatusUpdateSchema } from '../schemas/zodSchemas.js';
+import { checkerUpload, sliderUpload } from '../middleware/upload.js';
 import {
   getCheckerStats,
   uploadCheckersFromExcel,
@@ -21,6 +25,7 @@ import {
 } from '../services/checkerService.js';
 import { reorderCategoryPackages } from '../utils/packageSort.js';
 import { fulfillOrder } from '../services/orderService.js';
+import { purgeAllOrders, purgeAllCheckers } from '../services/orderPurgeService.js';
 import {
   serializeApiProviderSettingsForAdmin,
   updateApiProviderSettings,
@@ -34,9 +39,8 @@ import { encrypt } from '../utils/encryption.js';
 import { env } from '../config/env.js';
 
 const router = Router();
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
-router.use(protect, adminOnly, noCache);
+router.use(protect, adminOnly, adminLimiter, noCache);
 
 if (env.cloudinary.cloudName) {
   cloudinary.config({
@@ -178,7 +182,7 @@ router.patch('/packages/category/:category/availability', asyncHandler(async (re
 
 // Orders
 router.get('/orders', asyncHandler(async (req, res) => {
-  const { status, search, page = 1, limit = 20 } = req.query;
+  const { status, search, category, network, page = 1, limit = 100 } = req.query;
   const filter = {};
   if (status) filter.deliveryStatus = status;
   if (search) {
@@ -186,7 +190,19 @@ router.get('/orders', asyncHandler(async (req, res) => {
       { reference: { $regex: search, $options: 'i' } },
       { email: { $regex: search, $options: 'i' } },
       { phone: { $regex: search, $options: 'i' } },
+      { packageName: { $regex: search, $options: 'i' } },
     ];
+  }
+
+  const networkKey = String(network || category || '').toLowerCase();
+  if (networkKey === 'mtn') {
+    filter.category = { $in: ['MTN', 'MTN AFA'] };
+  } else if (networkKey === 'telecel') {
+    filter.category = 'Telecel';
+  } else if (networkKey === 'airteltigo') {
+    filter.category = { $in: ['AirtelTigo', 'AirtelTigo Big Time'] };
+  } else if (category) {
+    filter.category = category;
   }
 
   const orders = await Order.find(filter)
@@ -200,10 +216,65 @@ router.get('/orders', asyncHandler(async (req, res) => {
   res.json({ success: true, orders, pagination: { page: Number(page), limit: Number(limit), total } });
 }));
 
-router.patch('/orders/:id/status', asyncHandler(async (req, res) => {
-  const order = await Order.findByIdAndUpdate(req.params.id, { deliveryStatus: req.body.status }, { new: true });
+router.delete('/orders/purge-all', asyncHandler(async (req, res) => {
+  if (req.body?.confirm !== 'DELETE_ALL_ORDERS') {
+    throw new AppError('Send { "confirm": "DELETE_ALL_ORDERS" } to purge all orders.', 400);
+  }
+
+  const result = await purgeAllOrders();
+
+  await logAudit({
+    user: req.user,
+    action: 'DELETE',
+    resource: 'Order',
+    details: { purgeAll: true, ...result },
+    req,
+  });
+
+  res.json({ success: true, message: 'All orders cleared.', ...result });
+}));
+
+router.patch('/orders/bulk-status', validateBody(orderBulkStatusUpdateSchema), asyncHandler(async (req, res) => {
+  const { orderIds, deliveryStatus, paymentStatus } = req.body;
+  const updates = {};
+  if (deliveryStatus) updates.deliveryStatus = deliveryStatus;
+  if (paymentStatus) updates.paymentStatus = paymentStatus;
+
+  const result = await Order.updateMany({ _id: { $in: orderIds } }, updates);
+  const orders = await Order.find({ _id: { $in: orderIds } }).select('reference deliveryStatus paymentStatus');
+
+  for (const order of orders) {
+    req.app.get('io')?.emit('order:updated', {
+      reference: order.reference,
+      deliveryStatus: order.deliveryStatus,
+      paymentStatus: order.paymentStatus,
+    });
+  }
+
+  await logAudit({
+    user: req.user,
+    action: 'UPDATE',
+    resource: 'Order',
+    details: { bulk: true, count: result.modifiedCount, deliveryStatus, paymentStatus },
+    req,
+  });
+
+  res.json({ success: true, modifiedCount: result.modifiedCount, orders });
+}));
+
+router.patch('/orders/:id/status', validateBody(orderStatusUpdateSchema), asyncHandler(async (req, res) => {
+  const updates = {};
+  const deliveryStatus = req.body.deliveryStatus || req.body.status;
+  if (deliveryStatus) updates.deliveryStatus = deliveryStatus;
+  if (req.body.paymentStatus) updates.paymentStatus = req.body.paymentStatus;
+
+  const order = await Order.findByIdAndUpdate(req.params.id, updates, { new: true, runValidators: true });
   if (!order) throw new AppError('Order not found.', 404);
-  req.app.get('io')?.emit('order:updated', { reference: order.reference, deliveryStatus: order.deliveryStatus });
+  req.app.get('io')?.emit('order:updated', {
+    reference: order.reference,
+    deliveryStatus: order.deliveryStatus,
+    paymentStatus: order.paymentStatus,
+  });
   res.json({ success: true, order });
 }));
 
@@ -239,7 +310,7 @@ router.get('/checkers', asyncHandler(async (req, res) => {
   res.json({ success: true, checkers, pagination: { page: Number(page), limit: Number(limit), total } });
 }));
 
-router.post('/checkers/upload', upload.single('file'), asyncHandler(async (req, res) => {
+router.post('/checkers/upload', requirePermission('checkers'), checkerUpload.single('file'), asyncHandler(async (req, res) => {
   if (!req.file) throw new AppError('Excel file required.', 400);
 
   const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
@@ -256,10 +327,10 @@ router.post('/checkers', asyncHandler(async (req, res) => {
   const checkerType = String(req.body.checkerType || '').trim().toUpperCase();
   const serialNumber = String(req.body.serialNumber || '').trim();
   const pin = String(req.body.pin || '').trim();
-  const year = String(req.body.year || '').trim();
+  const year = String(req.body.year || new Date().getFullYear()).trim();
 
-  if (!checkerType || !serialNumber || !pin || !year) {
-    throw new AppError('Checker type, serial number, PIN, and year are required.', 400);
+  if (!checkerType || !serialNumber || !pin) {
+    throw new AppError('Checker type, serial number, and PIN are required.', 400);
   }
   if (!['BECE', 'WASSCE'].includes(checkerType)) {
     throw new AppError('Checker type must be BECE or WASSCE.', 400);
@@ -284,6 +355,25 @@ router.post('/checkers', asyncHandler(async (req, res) => {
   res.status(201).json({ success: true, checker });
 }));
 
+router.delete('/checkers/purge-all', asyncHandler(async (req, res) => {
+  if (req.body?.confirm !== 'DELETE_ALL_CHECKERS') {
+    throw new AppError('Send { "confirm": "DELETE_ALL_CHECKERS" } to purge all checker stock.', 400);
+  }
+
+  const result = await purgeAllCheckers();
+
+  await logAudit({
+    user: req.user,
+    action: 'DELETE',
+    resource: 'Checker',
+    details: { purgeAll: true, ...result },
+    req,
+  });
+
+  req.app.get('io')?.emit('packages:refresh');
+  res.json({ success: true, message: 'All checker stock cleared.', ...result });
+}));
+
 router.delete('/checkers/:id', asyncHandler(async (req, res) => {
   const checker = await Checker.findById(req.params.id);
   if (!checker) throw new AppError('Checker not found.', 404);
@@ -303,22 +393,14 @@ router.get('/promos', asyncHandler(async (_req, res) => {
   res.json({ success: true, promos });
 }));
 
-router.post('/promos/bulk', asyncHandler(async (req, res) => {
+router.post('/promos/bulk', requirePermission('promos'), validateBody(promoBulkSchema), asyncHandler(async (req, res) => {
   const { count, ...rest } = req.body;
   const body = { ...rest };
-
-  if (!body.expiryDate) {
-    throw new AppError('Expiry date is required.', 400);
-  }
-  if (!body.discountType) body.discountType = 'fixed';
-  if (body.discountValue == null || Number(body.discountValue) <= 0) {
-    throw new AppError('A valid discount value is required.', 400);
-  }
 
   const promos = await createBulkPromoCodes({
     count,
     description: body.description || '',
-    discountType: body.discountType,
+    discountType: body.discountType || 'fixed',
     discountValue: Number(body.discountValue),
     expiryDate: new Date(body.expiryDate),
     usageLimit: body.usageLimit != null && body.usageLimit !== '' ? Number(body.usageLimit) : null,
@@ -326,6 +408,7 @@ router.post('/promos/bulk', asyncHandler(async (req, res) => {
     isActive: body.isActive !== false,
   });
 
+  await logAudit({ user: req.user, action: 'CREATE', resource: 'PromoCode', details: { bulk: true, count: promos.length }, req });
   res.status(201).json({ success: true, promos, count: promos.length });
 }));
 
@@ -339,6 +422,7 @@ router.post('/promos', asyncHandler(async (req, res) => {
 
   try {
     const promo = await PromoCode.create(body);
+    await logAudit({ user: req.user, action: 'CREATE', resource: 'PromoCode', resourceId: promo._id, req });
     res.status(201).json({ success: true, promo });
   } catch (err) {
     if (err.code === 11000) {
@@ -351,11 +435,13 @@ router.post('/promos', asyncHandler(async (req, res) => {
 router.put('/promos/:id', asyncHandler(async (req, res) => {
   const promo = await PromoCode.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
   if (!promo) throw new AppError('Promo not found.', 404);
+  await logAudit({ user: req.user, action: 'UPDATE', resource: 'PromoCode', resourceId: promo._id, req });
   res.json({ success: true, promo });
 }));
 
-router.delete('/promos/:id', asyncHandler(async (req, res) => {
+router.delete('/promos/:id', requirePermission('promos'), asyncHandler(async (req, res) => {
   await PromoCode.findByIdAndDelete(req.params.id);
+  await logAudit({ user: req.user, action: 'DELETE', resource: 'PromoCode', resourceId: req.params.id, req });
   res.json({ success: true });
 }));
 
@@ -395,7 +481,7 @@ router.get('/sliders', asyncHandler(async (_req, res) => {
   res.json({ success: true, sliders });
 }));
 
-router.post('/sliders', upload.single('image'), asyncHandler(async (req, res) => {
+router.post('/sliders', requirePermission('sliders'), sliderUpload.single('image'), asyncHandler(async (req, res) => {
   let imageUrl = req.body.imageUrl;
 
   if (req.file && env.cloudinary.cloudName) {
@@ -413,7 +499,7 @@ router.post('/sliders', upload.single('image'), asyncHandler(async (req, res) =>
   res.status(201).json({ success: true, slider });
 }));
 
-router.put('/sliders/:id', upload.single('image'), asyncHandler(async (req, res) => {
+router.put('/sliders/:id', requirePermission('sliders'), sliderUpload.single('image'), asyncHandler(async (req, res) => {
   const updates = { ...req.body };
 
   if (req.file && env.cloudinary.cloudName) {
@@ -461,6 +547,18 @@ router.put('/settings', asyncHandler(async (req, res) => {
   let settings = await SiteSettings.findOneAndUpdate({}, updates, { new: true, upsert: true });
   req.app.get('io')?.emit('settings:updated');
   res.json({ success: true, settings });
+}));
+
+router.patch('/settings/promo-checkout', requirePermission('promo_checkout'), asyncHandler(async (req, res) => {
+  const enabled = Boolean(req.body.enabled);
+  let settings = await SiteSettings.findOneAndUpdate(
+    {},
+    { promoCheckoutEnabled: enabled },
+    { new: true, upsert: true }
+  );
+  await logAudit({ user: req.user, action: 'UPDATE', resource: 'SiteSettings', details: { promoCheckoutEnabled: enabled }, req });
+  req.app.get('io')?.emit('settings:updated');
+  res.json({ success: true, promoCheckoutEnabled: settings.promoCheckoutEnabled });
 }));
 
 // API provider routing (data bundles + AFA only)

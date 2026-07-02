@@ -1,5 +1,5 @@
-import axios from 'axios';
 import crypto from 'crypto';
+import axios from 'axios';
 import { env } from '../config/env.js';
 
 const paystackApi = axios.create({
@@ -13,6 +13,9 @@ const paystackApi = axios.create({
 
 export const initializePayment = async ({ email, amount, reference, metadata }) => {
   if (!env.paystack.secretKey) {
+    if (env.nodeEnv === 'production') {
+      throw new Error('Paystack is not configured.');
+    }
     return {
       authorization_url: `${env.clientUrl}/payment/callback?reference=${reference}&mock=true`,
       access_code: 'mock_access_code',
@@ -34,6 +37,9 @@ export const initializePayment = async ({ email, amount, reference, metadata }) 
 
 export const verifyPayment = async (reference) => {
   if (!env.paystack.secretKey) {
+    if (env.nodeEnv === 'production') {
+      throw new Error('Paystack is not configured.');
+    }
     return {
       status: 'success',
       reference,
@@ -47,14 +53,17 @@ export const verifyPayment = async (reference) => {
 };
 
 export const verifyWebhookSignature = (req) => {
-  if (!env.paystack.secretKey) return true;
+  if (!env.paystack.secretKey) {
+    return env.nodeEnv !== 'production';
+  }
 
-  const hash = crypto
-    .createHmac('sha512', env.paystack.secretKey)
-    .update(JSON.stringify(req.body))
-    .digest('hex');
+  const signature = req.headers['x-paystack-signature'];
+  if (!signature) return false;
 
-  return hash === req.headers['x-paystack-signature'];
+  const payload = req.rawBody || Buffer.from(JSON.stringify(req.body));
+  const hash = crypto.createHmac('sha512', env.paystack.secretKey).update(payload).digest('hex');
+
+  return hash === signature;
 };
 
 export const calculatePaystackCharge = (packagePrice) => {

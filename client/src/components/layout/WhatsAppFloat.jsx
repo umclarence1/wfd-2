@@ -14,15 +14,12 @@ export default function WhatsAppFloat() {
       href={WHATSAPP_GROUP_URL}
       target="_blank"
       rel="noopener noreferrer"
-      className="whatsapp-float fixed bottom-5 right-5 z-50 flex max-w-[calc(100vw-2.5rem)] items-center gap-2.5 rounded-full bg-[#25D366] py-2.5 pl-3 pr-4 text-white shadow-lg transition hover:scale-[1.02] hover:bg-[#20bd5a] sm:bottom-6 sm:right-6 sm:gap-3 sm:py-3 sm:pl-4 sm:pr-5"
+      className="whatsapp-float group fixed bottom-5 right-5 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-[#25D366] text-white sm:bottom-6 sm:right-6 sm:h-16 sm:w-16"
       aria-label="Join our WhatsApp group for updates"
+      title="Join our WhatsApp group for updates"
     >
-      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/15 sm:h-11 sm:w-11">
-        <WhatsAppIcon className="h-6 w-6 sm:h-7 sm:w-7" />
-      </span>
-      <span className="text-xs font-semibold leading-tight sm:text-sm">
-        Join our WhatsApp group for updates
-      </span>
+      <span className="whatsapp-float-ring pointer-events-none absolute inset-0 rounded-full" aria-hidden="true" />
+      <WhatsAppIcon className="relative z-10 h-7 w-7 sm:h-8 sm:w-8" />
     </a>
   );
 }

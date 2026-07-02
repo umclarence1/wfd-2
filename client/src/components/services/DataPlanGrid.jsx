@@ -1,7 +1,5 @@
 import { Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
 import { Globe } from 'lucide-react';
-import api from '../../api/client';
 
 export const DATA_PLANS = [
   { id: 'mtn', name: 'MTN', category: 'MTN', link: '/services/data/mtn', image: '/images/networks/mtn.jpg' },
@@ -25,7 +23,7 @@ export const DATA_PLANS = [
   },
 ];
 
-function DataPlanCard({ plan, isAvailable }) {
+function DataPlanCard({ plan, isAvailable, priority = false }) {
   if (plan.isWebDev) {
     return (
       <Link to={plan.link} className="interactive-card group flex flex-col">
@@ -45,14 +43,16 @@ function DataPlanCard({ plan, isAvailable }) {
   }
 
   const imageBlock = (
-    <div className="relative aspect-square overflow-hidden bg-white">
+    <div className="relative aspect-square overflow-hidden bg-gray-100">
       <img
         src={plan.image}
         alt={plan.name}
         className={`h-full w-full transition-transform duration-500 ease-out group-hover:scale-105 ${
           plan.id === 'waec' ? 'object-contain p-3 sm:p-5' : 'object-cover'
         }`}
-        loading="lazy"
+        loading={priority ? 'eager' : 'lazy'}
+        fetchPriority={priority ? 'high' : 'auto'}
+        decoding="async"
       />
     </div>
   );
@@ -82,23 +82,6 @@ function DataPlanCard({ plan, isAvailable }) {
 }
 
 export default function DataPlanGrid({ plans = DATA_PLANS, title, subtitle, appendCard }) {
-  const { data: allPackages = [], isLoading } = useQuery({
-    queryKey: ['packages-all'],
-    queryFn: () => api.get('/packages').then((r) => r.data.packages),
-    staleTime: 0,
-  });
-
-  const isPlanAvailable = (plan) => {
-    if (plan.alwaysAvailable || plan.isWebDev) return true;
-    if (!plan.category) return false;
-    const categories = plan.availabilityCategories || [plan.category];
-    return categories.some((category) => {
-      const categoryPackages = allPackages.filter((p) => p.category === category);
-      if (!categoryPackages.length) return false;
-      return categoryPackages.some((p) => p.isActive !== false && p.isAvailable !== false);
-    });
-  };
-
   return (
     <div>
       {title && (
@@ -108,20 +91,12 @@ export default function DataPlanGrid({ plans = DATA_PLANS, title, subtitle, appe
         </div>
       )}
 
-      {isLoading ? (
-        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3">
-          {plans.map((plan) => (
-            <div key={plan.id} className="aspect-square animate-pulse rounded-2xl bg-gray-200" />
-          ))}
-        </div>
-      ) : (
-        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3">
-          {plans.map((plan) => (
-            <DataPlanCard key={plan.id} plan={plan} isAvailable={isPlanAvailable(plan)} />
-          ))}
-          {appendCard}
-        </div>
-      )}
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3">
+        {plans.map((plan, index) => (
+          <DataPlanCard key={plan.id} plan={plan} isAvailable priority={index < 4} />
+        ))}
+        {appendCard}
+      </div>
     </div>
   );
 }

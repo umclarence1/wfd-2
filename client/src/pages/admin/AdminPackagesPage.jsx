@@ -4,6 +4,7 @@ import { Plus } from 'lucide-react';
 import api from '../../api/client';
 import { useToast } from '../../context/ToastContext';
 import AdminPageHeader from '../../components/admin/AdminPageHeader';
+import PackagePriceInput from '../../components/admin/PackagePriceInput';
 
 const PACKAGE_CATEGORIES = [
   'MTN',
@@ -65,8 +66,8 @@ export default function AdminPackagesPage() {
     mutationFn: ({ id, payload }) => api.put(`/admin/packages/${id}`, payload).then((r) => r.data.package),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-packages'] });
-      queryClient.invalidateQueries({ queryKey: ['packages-all'] });
       queryClient.invalidateQueries({ queryKey: ['packages'] });
+      queryClient.invalidateQueries({ queryKey: ['checker-pricing'] });
       toast('Package updated.', 'success');
     },
     onError: (err) => toast(err.response?.data?.message || 'Update failed.', 'error'),
@@ -76,7 +77,6 @@ export default function AdminPackagesPage() {
     mutationFn: (payload) => api.post('/admin/packages', payload).then((r) => r.data.package),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-packages'] });
-      queryClient.invalidateQueries({ queryKey: ['packages-all'] });
       queryClient.invalidateQueries({ queryKey: ['packages'] });
       setForm(emptyForm);
       setShowForm(false);
@@ -90,7 +90,6 @@ export default function AdminPackagesPage() {
       api.patch(`/admin/packages/${id}/availability`, { isAvailable }).then((r) => r.data.package),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-packages'] });
-      queryClient.invalidateQueries({ queryKey: ['packages-all'] });
       queryClient.invalidateQueries({ queryKey: ['packages'] });
       toast('Availability updated.', 'success');
     },
@@ -104,7 +103,6 @@ export default function AdminPackagesPage() {
         .then((r) => r.data),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['admin-packages'] });
-      queryClient.invalidateQueries({ queryKey: ['packages-all'] });
       queryClient.invalidateQueries({ queryKey: ['packages'] });
       toast(
         `${data.category}: ${data.modifiedCount} package(s) marked ${data.isAvailable ? 'available' : 'unavailable'}.`,
@@ -118,7 +116,6 @@ export default function AdminPackagesPage() {
     mutationFn: (id) => api.delete(`/admin/packages/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-packages'] });
-      queryClient.invalidateQueries({ queryKey: ['packages-all'] });
       queryClient.invalidateQueries({ queryKey: ['packages'] });
       toast('Package deleted.', 'success');
     },
@@ -319,17 +316,10 @@ export default function AdminPackagesPage() {
                   <td className="font-semibold text-slate-900">{pkg.name}</td>
                   <td>{pkg.dataAmount || '—'}</td>
                   <td>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      defaultValue={pkg.price}
-                      className="input-field !w-28 !py-2"
-                      onBlur={(e) => {
-                        const price = Number(e.target.value);
-                        if (Number.isNaN(price) || price === pkg.price) return;
-                        updatePackage.mutate({ id: pkg._id, payload: { price } });
-                      }}
+                    <PackagePriceInput
+                      pkg={pkg}
+                      isSaving={updatePackage.isPending}
+                      onSave={(price) => updatePackage.mutate({ id: pkg._id, payload: { price } })}
                     />
                   </td>
                   <td>

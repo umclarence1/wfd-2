@@ -2,25 +2,58 @@ import { Router } from 'express';
 import Order from '../models/Order.js';
 import { AppError, asyncHandler } from '../middleware/errorHandler.js';
 import { optionalAuth, protect, noCache } from '../middleware/auth.js';
-import { paymentLimiter, otpLimiter } from '../middleware/rateLimit.js';
+import { paymentLimiter, otpLimiter, promoLimiter } from '../middleware/rateLimit.js';
+import { validateBody, validateParams } from '../middleware/validate.js';
+import {
+  orderCreateSchema,
+  orderValidateSchema,
+  paymentReferenceSchema,
+  otpRequestSchema,
+  otpVerifySchema,
+} from '../schemas/zodSchemas.js';
 import {
   validateOrderInput,
   createOrder,
-  fulfillOrder,
   processFreeOrder,
   getPaymentBreakdown,
 } from '../services/orderService.js';
-import { initializePayment, verifyPayment, getPublicKey } from '../services/paystackService.js';
+import { initializePayment, getPublicKey, verifyPayment } from '../services/paystackService.js';
+import { markOrderPaidFromPaystack } from '../services/paymentProcessingService.js';
 import { createAndSendOTP, verifyOTP } from '../services/authService.js';
 import { validateEmail } from '../utils/validation.js';
-import { redeemPromoCode } from '../services/promoService.js';
 
 const router = Router();
+
+const sanitizeOrder = (order, { includeChecker = false } = {}) => {
+  const safe = {
+    reference: order.reference,
+    packageName: order.packageName,
+    category: order.category,
+    serviceType: order.serviceType,
+    packagePrice: order.packagePrice,
+    totalAmount: order.totalAmount,
+    paymentStatus: order.paymentStatus,
+    deliveryStatus: order.deliveryStatus,
+    createdAt: order.createdAt,
+  };
+
+  if (includeChecker && order.paymentStatus === 'paid' && order.checker) {
+    safe.checker = {
+      checkerType: order.checker.checkerType,
+      serialNumber: order.checker.serialNumber,
+      pin: order.checker.pin,
+    };
+  }
+
+  return safe;
+};
 
 router.post(
   '/validate',
   noCache,
+  promoLimiter,
   optionalAuth,
+  validateBody(orderValidateSchema),
   asyncHandler(async (req, res) => {
     const validated = await validateOrderInput(req.body, req.user);
     const breakdown = getPaymentBreakdown(validated.pkg.price, validated.promoResult);
@@ -33,9 +66,11 @@ router.post(
   noCache,
   paymentLimiter,
   optionalAuth,
+  validateBody(orderCreateSchema),
   asyncHandler(async (req, res) => {
+    const idempotencyKey = req.headers['idempotency-key']?.slice(0, 64) || null;
     const validated = await validateOrderInput(req.body, req.user);
-    const order = await createOrder({ ...validated, afaDetails: req.body.afaDetails }, req.user);
+    const order = await createOrder({ ...validated, afaDetails: req.body.afaDetails }, req.user, idempotencyKey);
 
     if (validated.pricing.isFreeOrder || validated.totalAmount === 0) {
       await processFreeOrder(order, validated.promoResult, req.user, req.app.get('io'));
@@ -74,12 +109,15 @@ router.post(
 router.get(
   '/verify/:reference',
   noCache,
+  paymentLimiter,
+  validateParams(paymentReferenceSchema),
   asyncHandler(async (req, res) => {
     const order = await Order.findOne({ paymentReference: req.params.reference });
     if (!order) throw new AppError('Order not found.', 404);
 
     if (order.paymentStatus === 'paid') {
-      return res.json({ success: true, order, alreadyPaid: true });
+      const updated = await Order.findById(order._id).populate('checker', 'serialNumber pin checkerType');
+      return res.json({ success: true, order: sanitizeOrder(updated, { includeChecker: true }), alreadyPaid: true });
     }
 
     const payment = await verifyPayment(req.params.reference);
@@ -90,34 +128,23 @@ router.get(
       throw new AppError('Payment verification failed.', 400);
     }
 
-    order.paymentStatus = 'paid';
-    order.paystackTransactionId = payment.id?.toString();
-    await order.save();
+    const amountPaid = payment.amount != null ? payment.amount / 100 : null;
+    const result = await markOrderPaidFromPaystack({
+      paymentReference: req.params.reference,
+      paystackTransactionId: payment.id,
+      amountPaid,
+      io: req.app.get('io'),
+    });
 
-    if (order.promoCode) {
-      const PromoCode = (await import('../models/PromoCode.js')).default;
-      const promo = await PromoCode.findOne({ code: order.promoCode });
-      if (promo) {
-        await redeemPromoCode({
-          promo,
-          email: order.email,
-          phone: order.phone,
-          userId: order.user,
-          orderId: order._id,
-        });
-      }
-    }
-
-    await fulfillOrder(order._id, req.app.get('io'));
-
-    const updated = await Order.findById(order._id).populate('checker', 'serialNumber pin checkerType');
-    res.json({ success: true, order: updated });
+    const updated = await Order.findById(result.order._id).populate('checker', 'serialNumber pin checkerType');
+    res.json({ success: true, order: sanitizeOrder(updated, { includeChecker: true }) });
   })
 );
 
 router.post(
   '/history/request-otp',
   otpLimiter,
+  validateBody(otpRequestSchema),
   asyncHandler(async (req, res) => {
     const { email } = req.body;
     const emailResult = validateEmail(email);
@@ -130,6 +157,7 @@ router.post(
 router.post(
   '/history/verify',
   otpLimiter,
+  validateBody(otpVerifySchema),
   asyncHandler(async (req, res) => {
     const { email, otp } = req.body;
     const emailResult = validateEmail(email);
@@ -154,7 +182,11 @@ router.get(
       .sort({ createdAt: -1 })
       .populate('checker', 'serialNumber pin checkerType')
       .lean();
-    res.json({ success: true, orders });
+
+    res.json({
+      success: true,
+      orders: orders.map((order) => sanitizeOrder(order, { includeChecker: order.paymentStatus === 'paid' })),
+    });
   })
 );
 
@@ -162,11 +194,21 @@ router.get(
   '/:reference',
   noCache,
   asyncHandler(async (req, res) => {
-    const order = await Order.findOne({ reference: req.params.reference })
+    const email = String(req.query.email || '').trim().toLowerCase();
+    if (!email) {
+      throw new AppError('Email is required to look up this order.', 400);
+    }
+
+    const order = await Order.findOne({ reference: req.params.reference, email })
       .populate('checker', 'serialNumber pin checkerType')
       .lean();
+
     if (!order) throw new AppError('Order not found.', 404);
-    res.json({ success: true, order });
+
+    res.json({
+      success: true,
+      order: sanitizeOrder(order, { includeChecker: order.paymentStatus === 'paid' }),
+    });
   })
 );
 

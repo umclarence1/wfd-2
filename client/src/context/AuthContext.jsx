@@ -30,8 +30,18 @@ export function AuthProvider({ children }) {
 
   const adminLogin = async (email, password) => {
     const { data } = await api.post('/auth/admin/login', { email, password });
+    return data;
+  };
+
+  const adminVerifyOtp = async (pendingToken, otp) => {
+    const { data } = await api.post('/auth/admin/login/verify-otp', { pendingToken, otp });
     setUser(data.user);
     return data.user;
+  };
+
+  const adminResendOtp = async (pendingToken) => {
+    const { data } = await api.post('/auth/admin/login/resend-otp', { pendingToken });
+    return data;
   };
 
   const logout = async () => {
@@ -48,9 +58,11 @@ export function AuthProvider({ children }) {
       loading,
       login,
       adminLogin,
+      adminVerifyOtp,
+      adminResendOtp,
       logout,
       refreshUser,
-      isAdmin: user?.role === 'admin',
+      isAdmin: ['admin', 'super_admin', 'support'].includes(user?.role),
     }),
     [user, loading, refreshUser]
   );

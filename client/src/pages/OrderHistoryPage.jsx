@@ -1,9 +1,11 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import api from '../api/client';
 import { formatCurrency, formatDate, validateEmail } from '../utils/validation';
 import { SUPPORT_EMAIL } from '../constants/brand';
 import { useToast } from '../context/ToastContext';
 import FormError, { fieldClass } from '../components/ui/FormError';
+import OtpInput from '../components/ui/OtpInput';
+import { Loader2 } from 'lucide-react';
 
 const statusColors = {
   pending: 'bg-amber-100 text-amber-800',
@@ -14,6 +16,7 @@ const statusColors = {
 };
 
 export default function OrderHistoryPage() {
+  const verifyLock = useRef(false);
   const [step, setStep] = useState('email');
   const [email, setEmail] = useState('');
   const [otp, setOtp] = useState('');
@@ -45,32 +48,24 @@ export default function OrderHistoryPage() {
     }
   };
 
-  const verifyOTP = async (e) => {
-    e.preventDefault();
-    const nextErrors = {};
+  const submitOtp = async (code) => {
+    if (verifyLock.current || loading) return;
 
-    if (!otp.trim()) {
-      nextErrors.otp = 'Enter the 6-digit code from your email.';
-    } else if (otp.trim().length !== 6) {
-      nextErrors.otp = 'The code must be 6 digits.';
-    }
-
-    setErrors(nextErrors);
-    if (Object.keys(nextErrors).length) {
-      toast('Please enter your verification code.', 'error');
-      return;
-    }
-
+    verifyLock.current = true;
     setLoading(true);
+    setErrors({});
+
     try {
-      const { data } = await api.post('/orders/history/verify', { email, otp });
+      const { data } = await api.post('/orders/history/verify', { email, otp: code });
       setOrders(data.orders);
       setStep('orders');
-      setErrors({});
     } catch (err) {
+      setOtp('');
+      setErrors({ otp: err.response?.data?.message || 'Invalid OTP.' });
       toast(err.response?.data?.message || 'Invalid OTP.', 'error');
     } finally {
       setLoading(false);
+      verifyLock.current = false;
     }
   };
 
@@ -107,25 +102,29 @@ export default function OrderHistoryPage() {
       )}
 
       {step === 'otp' && (
-        <form noValidate onSubmit={verifyOTP} className="card mt-8 max-w-md">
-          <p className="mb-4 text-sm font-medium text-gray-600">Enter the 6-digit code sent to {email}</p>
-          <input
-            className={`${fieldClass(errors.otp)} text-center text-2xl tracking-widest`}
+        <div className="card mt-8 max-w-md">
+          <p className="mb-5 text-center text-sm font-medium text-gray-600">
+            Enter the 6-digit code sent to {email}
+          </p>
+          <OtpInput
             value={otp}
-            onChange={(e) => {
-              setOtp(e.target.value.replace(/\D/g, '').slice(0, 6));
+            onChange={(code) => {
+              setOtp(code);
               if (errors.otp) setErrors({});
             }}
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            placeholder="000000"
-            maxLength={6}
+            onComplete={submitOtp}
+            disabled={loading}
+            error={Boolean(errors.otp)}
+            autoFocus
           />
           <FormError message={errors.otp} />
-          <button type="submit" disabled={loading} className="btn-primary mt-4 w-full">
-            {loading ? 'Verifying...' : 'Verify & View Orders'}
-          </button>
-        </form>
+          {loading && (
+            <div className="mt-4 flex items-center justify-center gap-2 text-sm font-medium text-blue-700">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Verifying...
+            </div>
+          )}
+        </div>
       )}
 
       {step === 'orders' && (

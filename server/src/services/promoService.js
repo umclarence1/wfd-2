@@ -110,14 +110,41 @@ export const validatePromoCode = async ({ code, packageId, category, email, phon
 };
 
 export const redeemPromoCode = async ({ promo, email, phone, userId, orderId, session }) => {
+  return redeemPromoCodeAtomic({ promo, email, phone, userId, orderId, session });
+};
+
+export const redeemPromoCodeAtomic = async ({ promo, email, phone, userId, orderId, session }) => {
+  const opts = session ? { session } : {};
+
+  if (promo.usageLimit !== null) {
+    const updated = await PromoCode.findOneAndUpdate(
+      {
+        _id: promo._id,
+        isActive: true,
+        $expr: { $lt: ['$usageCount', '$usageLimit'] },
+      },
+      { $inc: { usageCount: 1 } },
+      { new: true, ...opts }
+    );
+    if (!updated) {
+      throw new AppError('Invalid or expired promo code.', 400, 'INVALID_PROMO');
+    }
+  } else {
+    await PromoCode.findByIdAndUpdate(promo._id, { $inc: { usageCount: 1 } }, opts);
+  }
+
   const reference = generateReference('PRM');
-
-  await PromoRedemption.create(
-    [{ reference, promoCode: promo._id, code: promo.code, email, phone, user: userId, order: orderId }],
-    { session }
-  );
-
-  await PromoCode.findByIdAndUpdate(promo._id, { $inc: { usageCount: 1 } }, { session });
+  try {
+    await PromoRedemption.create(
+      [{ reference, promoCode: promo._id, code: promo.code, email, phone, user: userId, order: orderId }],
+      opts
+    );
+  } catch (err) {
+    if (err.code === 11000) {
+      throw new AppError('Promo code already used for this order.', 400, 'PROMO_ALREADY_REDEEMED');
+    }
+    throw err;
+  }
 };
 
 export const calculatePromoPrice = (packagePrice, promoResult) => {

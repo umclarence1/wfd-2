@@ -1,56 +1,39 @@
 import { useQuery } from '@tanstack/react-query';
 import { Tag } from 'lucide-react';
 import api from '../api/client';
-import { formatCurrency, formatDate } from '../utils/validation';
-
-const formatDiscount = (promo) => {
-  if (promo.discountType === 'free') return 'Free';
-  if (promo.discountType === 'percentage') return `${promo.discountValue}% off`;
-  return `${formatCurrency(promo.discountValue)} off`;
-};
 
 export default function PromotionsPage() {
-  const { data: promos = [], isLoading } = useQuery({
+  const { data, isFetching } = useQuery({
     queryKey: ['public-promos'],
-    queryFn: () => api.get('/public/promos').then((r) => r.data.promos),
+    queryFn: () => api.get('/public/promos').then((r) => r.data),
     staleTime: 60_000,
   });
+
+  const promoCheckoutEnabled = data?.promoCheckoutEnabled === true;
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-12">
       <h1 className="section-title">Promotions</h1>
-      <p className="section-subtitle">Apply promo codes at checkout for discounts and free services.</p>
+      <p className="section-subtitle">Apply promo codes at checkout when the store has promotions active.</p>
 
-      {isLoading ? (
-        <div className="mt-10 h-32 animate-pulse rounded-2xl bg-slate-100" />
-      ) : promos.length > 0 ? (
-        <div className="mt-10 space-y-4">
-          <h2 className="text-lg font-bold text-slate-900 dark:text-white">Available promo codes</h2>
-          {promos.map((promo) => (
-            <div key={promo._id} className="card flex items-start gap-4">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300">
-                <Tag className="h-5 w-5" />
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="font-mono text-xl font-bold tracking-wide text-blue-700 dark:text-blue-400">
-                  {promo.code}
-                </p>
-                {promo.description && (
-                  <p className="mt-1 text-gray-600 dark:text-gray-400">{promo.description}</p>
-                )}
-                <p className="mt-2 text-sm font-semibold text-emerald-700 dark:text-emerald-400">
-                  {formatDiscount(promo)}
-                </p>
-                <p className="mt-1 text-xs text-gray-500">
-                  Valid until {formatDate(promo.expiryDate)}
-                  {promo.usageLimit ? ` · ${promo.usageLimit - promo.usageCount} uses left` : ''}
-                </p>
-              </div>
+      {isFetching ? (
+        <p className="mt-10 text-sm text-gray-500">Loading...</p>
+      ) : promoCheckoutEnabled ? (
+        <div className="card mt-10">
+          <div className="flex items-start gap-4">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700">
+              <Tag className="h-5 w-5" />
+            </span>
+            <div>
+              <p className="font-bold text-gray-900">Promotions are active</p>
+              <p className="mt-1 text-sm text-gray-600">
+                {data?.message || 'Enter your promo code during checkout to receive your discount.'}
+              </p>
             </div>
-          ))}
+          </div>
         </div>
       ) : (
-        <p className="mt-10 text-sm text-gray-500">No active promo codes right now. Check back soon.</p>
+        <p className="mt-10 text-sm text-gray-500">No active promotions right now. Check back soon.</p>
       )}
 
       <div className="card mt-10">

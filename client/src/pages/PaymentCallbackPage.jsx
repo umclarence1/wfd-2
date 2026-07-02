@@ -13,7 +13,12 @@ export default function PaymentCallbackPage() {
 
   useEffect(() => {
     if (isFree && reference) {
-      api.get(`/orders/${reference}`).then(({ data }) => {
+      const email = sessionStorage.getItem('wds_order_email');
+      const url = email
+        ? `/orders/${reference}?email=${encodeURIComponent(email)}`
+        : `/orders/verify/${reference}`;
+
+      api.get(url).then(({ data }) => {
         setOrder(data.order);
         setStatus('success');
       }).catch(() => setStatus('error'));

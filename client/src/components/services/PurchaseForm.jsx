@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
+import { usePackagesByCategory } from '../../hooks/usePackages';
 import api from '../../api/client';
 import {
   validateNetworkPhone,
@@ -61,6 +62,16 @@ export default function PurchaseForm({
 
   const { toast } = useToast();
   const navigate = useNavigate();
+  const { packages: afaPackages, isFetching: afaLoading } = usePackagesByCategory('MTN AFA');
+
+  const { data: siteSettings } = useQuery({
+    queryKey: ['settings'],
+    queryFn: () => api.get('/public/settings').then((r) => r.data.settings),
+    staleTime: 30_000,
+    placeholderData: {},
+  });
+
+  const showPromoField = siteSettings?.promoCheckoutEnabled === true;
 
   const clearError = (field) => {
     if (errors[field]) {
@@ -89,12 +100,14 @@ export default function PurchaseForm({
     }
   };
 
-  const { data: afaPackages = [], isLoading: afaLoading } = useQuery({
-    queryKey: ['packages', category],
-    queryFn: () => api.get('/packages', { params: { category } }).then((r) => r.data.packages),
-    enabled: showAfaForm,
-    staleTime: 0,
-  });
+  useEffect(() => {
+    if (showPromoField) return;
+    setPromoCode('');
+    setPromoApplied('');
+    if (selected) {
+      setBreakdown(calculatePaymentBreakdown(selected.price));
+    }
+  }, [showPromoField, selected]);
 
   useEffect(() => {
     if (!showAfaForm || selected) return;
@@ -200,7 +213,12 @@ export default function PurchaseForm({
         ...(showAfaForm && { afaDetails }),
       };
 
-      const { data } = await api.post('/orders/create', payload);
+      sessionStorage.setItem('wds_order_email', emailResult.normalized);
+
+      const idempotencyKey = globalThis.crypto?.randomUUID?.() || `ord-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const { data } = await api.post('/orders/create', payload, {
+        headers: { 'Idempotency-Key': idempotencyKey },
+      });
 
       if (data.order.isFreeOrder) {
         toast('Order completed successfully!', 'success');
@@ -291,7 +309,7 @@ export default function PurchaseForm({
                   selected={selected}
                   onSelect={handleSelectPackage}
                   summaryOnly={isChecker}
-                  hideSummary
+                  hideSummary={false}
                 />
               )}
               {errors.package && <FormError message={errors.package} />}
@@ -299,18 +317,8 @@ export default function PurchaseForm({
           </motion.div>
         )}
 
-        {showAfaForm && afaLoading && (
-          <motion.div
-            key="afa-loading"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="card mt-8 animate-pulse space-y-4"
-          >
-            <div className="h-6 w-40 rounded bg-gray-200" />
-            <div className="h-10 rounded bg-gray-200" />
-            <div className="h-10 rounded bg-gray-200" />
-            <div className="h-10 rounded bg-gray-200" />
-          </motion.div>
+        {showAfaForm && afaLoading && !selected && (
+          <p className="mt-8 text-sm text-gray-500">Loading AFA registration...</p>
         )}
 
         {showAfaForm && !afaLoading && !selected && (
@@ -351,7 +359,7 @@ export default function PurchaseForm({
                         setAfaDetails({ ...afaDetails, fullName: e.target.value });
                         clearError('fullName');
                       }}
-                      placeholder="wilberforce"
+                      placeholder="Your full name"
                       autoComplete="name"
                     />
                     <FormError message={errors.fullName} />
@@ -426,20 +434,22 @@ export default function PurchaseForm({
                   />
                   <FormError message={errors.email} />
                 </div>
-                <div>
-                  <label className="mb-1 block text-sm font-medium">Promo Code (Optional)</label>
-                  <div className="flex gap-2">
-                    <input
-                      className="input-field"
-                      value={promoCode}
-                      onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
-                      placeholder="PROMO123"
-                    />
-                    <button type="button" onClick={handleApplyPromo} className="btn-secondary shrink-0">
-                      Apply
-                    </button>
+                {showPromoField && (
+                  <div>
+                    <label className="mb-1 block text-sm font-medium">Promo Code (Optional)</label>
+                    <div className="flex gap-2">
+                      <input
+                        className="input-field"
+                        value={promoCode}
+                        onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
+                        placeholder="PROMO123"
+                      />
+                      <button type="button" onClick={handleApplyPromo} className="btn-secondary shrink-0">
+                        Apply
+                      </button>
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
             </div>
 

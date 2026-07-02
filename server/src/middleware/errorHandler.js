@@ -13,16 +13,21 @@ export const asyncHandler = (fn) => (req, res, next) => {
 
 export const errorHandler = (err, req, res, _next) => {
   const statusCode = err.statusCode || 500;
-  const message = err.isOperational ? err.message : 'Something went wrong';
+  const isProd = process.env.NODE_ENV === 'production';
+  const message = err.isOperational
+    ? err.message
+    : (isProd ? 'Something went wrong. Please try again.' : err.message || 'Something went wrong');
 
-  if (process.env.NODE_ENV !== 'production') {
+  if (!isProd) {
     console.error(err);
+  } else if (!err.isOperational) {
+    console.error('[ERROR]', err.message);
   }
 
   res.status(statusCode).json({
     success: false,
     message,
     code: err.code || 'INTERNAL_ERROR',
-    ...(process.env.NODE_ENV !== 'production' && { stack: err.stack }),
+    ...(!isProd && { stack: err.stack }),
   });
 };

@@ -18,7 +18,8 @@ export default function Navbar() {
   const { data: settingsData } = useQuery({
     queryKey: ['settings'],
     queryFn: () => api.get('/public/settings').then((r) => r.data.settings),
-    staleTime: 0,
+    staleTime: 5 * 60 * 1000,
+    placeholderData: {},
   });
 
   const settings = settingsData || {};

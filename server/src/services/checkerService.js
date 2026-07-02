@@ -59,10 +59,10 @@ export const uploadCheckersFromExcel = async (rows) => {
     const checkerType = String(row['Checker Type'] || row.checkerType || '').trim().toUpperCase();
     const serialNumber = String(row['Serial Number'] || row.serialNumber || '').trim();
     const pin = String(row.PIN || row.pin || '').trim();
-    const year = String(row.Year || row.year || '').trim();
+    const year = String(row.Year || row.year || new Date().getFullYear()).trim();
     const status = String(row.Status || row.status || 'unused').trim().toLowerCase();
 
-    if (!checkerType || !serialNumber || !pin || !year) {
+    if (!checkerType || !serialNumber || !pin) {
       report.invalidRows++;
       report.errors.push({ row: i + 2, reason: 'Empty required field' });
       continue;

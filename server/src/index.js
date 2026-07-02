@@ -1,6 +1,7 @@
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import { env } from './config/env.js';
+import { validateProductionEnv } from './config/validateEnv.js';
 import connectDB from './config/db.js';
 import { createApp } from './app.js';
 import { autoSeedIfEmpty } from './scripts/autoSeed.js';
@@ -27,6 +28,7 @@ const server = createServer(app);
 io.attach(server);
 
 await connectDB();
+validateProductionEnv();
 await autoSeedIfEmpty();
 
 server.listen(env.port, () => {

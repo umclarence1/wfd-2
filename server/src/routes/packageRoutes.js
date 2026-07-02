@@ -1,7 +1,11 @@
 import { Router } from 'express';
 import Package from '../models/Package.js';
+import SiteSettings from '../models/SiteSettings.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import { noCache } from '../middleware/auth.js';
+import { promoLimiter } from '../middleware/rateLimit.js';
+import { validateBody } from '../middleware/validate.js';
+import { packageBreakdownSchema } from '../schemas/zodSchemas.js';
 import { getPaymentBreakdown } from '../services/orderService.js';
 import { validatePromoCode } from '../services/promoService.js';
 import { checkStock } from '../services/checkerService.js';
@@ -64,6 +68,8 @@ router.get(
 router.post(
   '/:id/breakdown',
   noCache,
+  promoLimiter,
+  validateBody(packageBreakdownSchema),
   asyncHandler(async (req, res) => {
     const pkg = await Package.findById(req.params.id);
     if (!pkg || !pkg.isActive || !pkg.isAvailable) {
@@ -83,6 +89,11 @@ router.post(
 
     let promoResult = null;
     if (req.body.promoCode) {
+      const settings = await SiteSettings.findOne().lean();
+      if (!settings?.promoCheckoutEnabled) {
+        return res.status(400).json({ success: false, message: 'Promo codes are not available at this time.' });
+      }
+
       try {
         promoResult = await validatePromoCode({
           code: req.body.promoCode,

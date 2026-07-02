@@ -4,7 +4,10 @@ import User from '../models/User.js';
 import RefreshToken from '../models/RefreshToken.js';
 import { AppError, asyncHandler } from '../middleware/errorHandler.js';
 import { protect } from '../middleware/auth.js';
-import { authLimiter } from '../middleware/rateLimit.js';
+import { authLimiter, adminLoginLimiter, otpLimiter, refreshLimiter } from '../middleware/rateLimit.js';
+import { validateBody } from '../middleware/validate.js';
+import { registerSchema, loginSchema, adminLoginVerifySchema, adminLoginResendSchema } from '../schemas/zodSchemas.js';
+import { validatePasswordStrength } from '../utils/password.js';
 import {
   generateAccessToken,
   generateRefreshToken,
@@ -14,31 +17,42 @@ import {
   rotateRefreshToken,
   sendEmailVerification,
   sendPasswordReset,
+  createPendingAdminLoginToken,
+  verifyPendingAdminLoginToken,
+  createAndSendAdminLoginOTP,
+  verifyAdminLoginOTP,
 } from '../services/authService.js';
+import {
+  assertAccountNotLocked,
+  recordFailedLogin,
+  resetLoginAttempts,
+} from '../services/loginSecurityService.js';
 
 const router = Router();
+
+const issueSession = async (res, user, req) => {
+  const accessToken = generateAccessToken(user._id);
+  const refreshToken = generateRefreshToken();
+  await storeRefreshToken(user._id, refreshToken, req);
+  setTokenCookies(res, accessToken, refreshToken);
+};
 
 router.post(
   '/register',
   authLimiter,
+  validateBody(registerSchema),
   asyncHandler(async (req, res) => {
     const { name, email, password, phone } = req.body;
 
-    if (!name || !email || !password) {
-      throw new AppError('Name, email, and password are required.', 400);
-    }
-    if (password.length < 8) throw new AppError('Password must be at least 8 characters.', 400);
+    const passwordCheck = validatePasswordStrength(password);
+    if (!passwordCheck.valid) throw new AppError(passwordCheck.error, 400);
 
     const exists = await User.findOne({ email: email.toLowerCase() });
     if (exists) throw new AppError('Email already registered.', 400);
 
     const user = await User.create({ name, email, phone, password });
     await sendEmailVerification(user);
-
-    const accessToken = generateAccessToken(user._id);
-    const refreshToken = generateRefreshToken();
-    await storeRefreshToken(user._id, refreshToken, req);
-    setTokenCookies(res, accessToken, refreshToken);
+    await issueSession(res, user, req);
 
     res.status(201).json({
       success: true,
@@ -51,20 +65,22 @@ router.post(
 router.post(
   '/login',
   authLimiter,
+  validateBody(loginSchema),
   asyncHandler(async (req, res) => {
     const { email, password } = req.body;
     const user = await User.findOne({ email: email.toLowerCase() }).select('+password');
 
+    assertAccountNotLocked(user);
+
     if (!user || !(await user.comparePassword(password))) {
+      await recordFailedLogin(user, req);
       throw new AppError('Invalid email or password.', 401);
     }
     if (user.isBanned) throw new AppError('Your account has been banned.', 403);
     if (user.isSuspended) throw new AppError('Your account has been suspended.', 403);
 
-    const accessToken = generateAccessToken(user._id);
-    const refreshToken = generateRefreshToken();
-    await storeRefreshToken(user._id, refreshToken, req);
-    setTokenCookies(res, accessToken, refreshToken);
+    await resetLoginAttempts(user);
+    await issueSession(res, user, req);
 
     res.json({
       success: true,
@@ -75,24 +91,65 @@ router.post(
 
 router.post(
   '/admin/login',
-  authLimiter,
+  adminLoginLimiter,
+  validateBody(loginSchema),
   asyncHandler(async (req, res) => {
     const { email, password } = req.body;
-    const user = await User.findOne({ email: email?.toLowerCase() }).select('+password');
+    const user = await User.findOne({ email: email.toLowerCase() }).select('+password');
+
+    assertAccountNotLocked(user);
 
     if (!user || !(await user.comparePassword(password))) {
+      await recordFailedLogin(user, req);
       throw new AppError('Invalid email or password.', 401);
     }
-    if (user.role !== 'admin') {
+    if (!['admin', 'super_admin', 'support'].includes(user.role)) {
       throw new AppError('This account is not an admin.', 403);
     }
     if (user.isBanned) throw new AppError('Your account has been banned.', 403);
     if (user.isSuspended) throw new AppError('Your account has been suspended.', 403);
 
-    const accessToken = generateAccessToken(user._id);
-    const refreshToken = generateRefreshToken();
-    await storeRefreshToken(user._id, refreshToken, req);
-    setTokenCookies(res, accessToken, refreshToken);
+    await resetLoginAttempts(user);
+
+    const pendingToken = createPendingAdminLoginToken(user._id);
+    const { otpSentTo, emailDelivered, deliveryMethod } = await createAndSendAdminLoginOTP();
+
+    const deliveryMessage =
+      deliveryMethod === 'sms'
+        ? `Verification code sent by SMS to ${otpSentTo}.`
+        : deliveryMethod === 'email'
+          ? `Verification code sent to ${otpSentTo}. Check your inbox and spam folder.`
+          : `Verification code could not be sent to ${otpSentTo}.`;
+
+    res.json({
+      success: true,
+      requiresOtp: true,
+      pendingToken,
+      otpSentTo,
+      emailDelivered,
+      deliveryMethod,
+      message: emailDelivered ? deliveryMessage : deliveryMessage,
+    });
+  })
+);
+
+router.post(
+  '/admin/login/verify-otp',
+  otpLimiter,
+  validateBody(adminLoginVerifySchema),
+  asyncHandler(async (req, res) => {
+    const { pendingToken, otp } = req.body;
+    const userId = verifyPendingAdminLoginToken(pendingToken);
+    await verifyAdminLoginOTP(otp);
+
+    const user = await User.findById(userId);
+    if (!user || !['admin', 'super_admin', 'support'].includes(user.role)) {
+      throw new AppError('This account is not an admin.', 403);
+    }
+    if (user.isBanned) throw new AppError('Your account has been banned.', 403);
+    if (user.isSuspended) throw new AppError('Your account has been suspended.', 403);
+
+    await issueSession(res, user, req);
 
     res.json({
       success: true,
@@ -103,6 +160,21 @@ router.post(
         role: user.role,
         isEmailVerified: user.isEmailVerified,
       },
+    });
+  })
+);
+
+router.post(
+  '/admin/login/resend-otp',
+  otpLimiter,
+  validateBody(adminLoginResendSchema),
+  asyncHandler(async (req, res) => {
+    verifyPendingAdminLoginToken(req.body.pendingToken);
+    const { otpSentTo } = await createAndSendAdminLoginOTP();
+    res.json({
+      success: true,
+      otpSentTo,
+      message: `A new verification code was sent to ${otpSentTo}.`,
     });
   })
 );
@@ -121,6 +193,7 @@ router.post(
 
 router.post(
   '/refresh',
+  refreshLimiter,
   asyncHandler(async (req, res) => {
     const oldToken = req.cookies?.refreshToken;
     if (!oldToken) throw new AppError('Refresh token required.', 401);
@@ -172,6 +245,7 @@ router.post(
 router.post(
   '/forgot-password',
   authLimiter,
+  validateBody(loginSchema.pick({ email: true })),
   asyncHandler(async (req, res) => {
     const { email } = req.body;
     const user = await User.findOne({ email: email.toLowerCase() });
@@ -185,7 +259,8 @@ router.post(
   authLimiter,
   asyncHandler(async (req, res) => {
     const { token, password } = req.body;
-    if (!password || password.length < 8) throw new AppError('Password must be at least 8 characters.', 400);
+    const passwordCheck = validatePasswordStrength(password);
+    if (!passwordCheck.valid) throw new AppError(passwordCheck.error, 400);
 
     const hashed = crypto.createHash('sha256').update(token).digest('hex');
     const user = await User.findOne({
@@ -214,10 +289,12 @@ router.post(
     if (!(await user.comparePassword(currentPassword))) {
       throw new AppError('Current password is incorrect.', 400);
     }
-    if (newPassword.length < 8) throw new AppError('New password must be at least 8 characters.', 400);
+    const passwordCheck = validatePasswordStrength(newPassword);
+    if (!passwordCheck.valid) throw new AppError(passwordCheck.error, 400);
 
     user.password = newPassword;
     await user.save();
+    await RefreshToken.updateMany({ user: user._id }, { isRevoked: true });
     clearTokenCookies(res);
     res.json({ success: true, message: 'Password changed. Please log in again.' });
   })

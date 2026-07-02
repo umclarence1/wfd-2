@@ -8,6 +8,14 @@ export const authLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+export const adminLoginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { success: false, message: 'Too many admin login attempts.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 export const otpLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 5,
@@ -28,6 +36,38 @@ export const paymentLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 10,
   message: { success: false, message: 'Too many payment requests.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+export const webhookLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  message: { success: false, message: 'Too many webhook requests.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+export const refreshLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  message: { success: false, message: 'Too many refresh attempts.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+export const promoLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  message: { success: false, message: 'Too many promo attempts.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+export const adminLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 300,
+  message: { success: false, message: 'Too many admin requests.' },
   standardHeaders: true,
   legacyHeaders: false,
 });

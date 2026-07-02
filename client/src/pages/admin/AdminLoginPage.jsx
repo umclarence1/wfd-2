@@ -1,17 +1,24 @@
-import { useState } from 'react';
-import { Link, Navigate, useNavigate } from 'react-router-dom';
-import { Shield } from 'lucide-react';
+import { useRef, useState } from 'react';
+import { Navigate, useNavigate } from 'react-router-dom';
+import { Loader2, Shield } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
-import { SITE_NAME } from '../../constants/brand';
+import { SITE_NAME, SUPPORT_EMAIL } from '../../constants/brand';
 import FormError, { fieldClass } from '../../components/ui/FormError';
+import OtpInput from '../../components/ui/OtpInput';
 
 export default function AdminLoginPage() {
-  const { adminLogin, isAdmin, loading } = useAuth();
+  const { adminLogin, adminVerifyOtp, adminResendOtp, isAdmin, loading } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
-  const [email, setEmail] = useState('admin@wds.com');
+  const verifyLock = useRef(false);
+  const [step, setStep] = useState('credentials');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [otp, setOtp] = useState('');
+  const [pendingToken, setPendingToken] = useState('');
+  const [otpSentTo, setOtpSentTo] = useState('');
+  const [deliveryMethod, setDeliveryMethod] = useState('email');
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState({});
 
@@ -19,7 +26,7 @@ export default function AdminLoginPage() {
     return <Navigate to="/admin/dashboard" replace />;
   }
 
-  const handleSubmit = async (e) => {
+  const handleCredentialsSubmit = async (e) => {
     e.preventDefault();
     const nextErrors = {};
     if (!email.trim()) nextErrors.email = 'Email is required.';
@@ -29,11 +36,50 @@ export default function AdminLoginPage() {
 
     setSubmitting(true);
     try {
-      await adminLogin(email.trim(), password);
+      const data = await adminLogin(email.trim(), password);
+      setPendingToken(data.pendingToken);
+      setOtpSentTo(data.otpSentTo || SUPPORT_EMAIL);
+      setDeliveryMethod(data.deliveryMethod || 'email');
+      setStep('otp');
+      toast(data.message || 'Verification code sent.', 'success');
+    } catch (err) {
+      toast(err.response?.data?.message || 'Login failed.', 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const submitOtp = async (code) => {
+    if (!pendingToken || verifyLock.current || submitting) return;
+
+    verifyLock.current = true;
+    setSubmitting(true);
+    setErrors({});
+
+    try {
+      await adminVerifyOtp(pendingToken, code);
       toast('Welcome back!', 'success');
       navigate('/admin/dashboard');
     } catch (err) {
-      toast(err.response?.data?.message || 'Login failed.', 'error');
+      setOtp('');
+      setErrors({ otp: err.response?.data?.message || 'Invalid verification code.' });
+      toast(err.response?.data?.message || 'Invalid verification code.', 'error');
+    } finally {
+      setSubmitting(false);
+      verifyLock.current = false;
+    }
+  };
+
+  const handleResendOtp = async () => {
+    if (!pendingToken || submitting) return;
+    setSubmitting(true);
+    try {
+      const data = await adminResendOtp(pendingToken);
+      setOtp('');
+      setErrors({});
+      toast(data.message || 'A new code was sent.', 'success');
+    } catch (err) {
+      toast(err.response?.data?.message || 'Could not resend code.', 'error');
     } finally {
       setSubmitting(false);
     }
@@ -47,50 +93,89 @@ export default function AdminLoginPage() {
             <Shield className="h-7 w-7" />
           </span>
           <h1 className="mt-5 text-2xl font-bold text-white">{SITE_NAME}</h1>
-          <p className="mt-2 text-sm text-blue-100">Sign in to your admin dashboard</p>
+          <p className="mt-2 text-sm text-blue-100">
+            {step === 'otp' ? 'Enter your verification code' : 'Sign in to your admin dashboard'}
+          </p>
         </div>
 
         <div className="admin-panel !shadow-2xl">
-          <form noValidate onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="mb-1.5 block text-sm font-semibold text-slate-700">Email</label>
-              <input
-                className={fieldClass(errors.email)}
-                type="text"
-                inputMode="email"
-                autoComplete="username"
-                value={email}
-                onChange={(e) => {
-                  setEmail(e.target.value);
-                  if (errors.email) setErrors({});
-                }}
-              />
-              <FormError message={errors.email} />
-            </div>
-            <div>
-              <label className="mb-1.5 block text-sm font-semibold text-slate-700">Password</label>
-              <input
-                className={fieldClass(errors.password)}
-                type="password"
-                autoComplete="current-password"
-                value={password}
-                onChange={(e) => {
-                  setPassword(e.target.value);
-                  if (errors.password) setErrors({});
-                }}
-              />
-              <FormError message={errors.password} />
-            </div>
-            <button type="submit" disabled={submitting} className="btn-primary w-full !py-3">
-              {submitting ? 'Signing in...' : 'Sign In'}
-            </button>
-          </form>
+          {step === 'credentials' ? (
+            <form noValidate onSubmit={handleCredentialsSubmit} className="space-y-4">
+              <div>
+                <label className="mb-1.5 block text-sm font-semibold text-slate-700">Email</label>
+                <input
+                  className={fieldClass(errors.email)}
+                  type="text"
+                  inputMode="email"
+                  autoComplete="username"
+                  placeholder={SUPPORT_EMAIL}
+                  value={email}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    if (errors.email) setErrors({});
+                  }}
+                />
+                <FormError message={errors.email} />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-semibold text-slate-700">Password</label>
+                <input
+                  className={fieldClass(errors.password)}
+                  type="password"
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    if (errors.password) setErrors({});
+                  }}
+                />
+                <FormError message={errors.password} />
+              </div>
+              <button type="submit" disabled={submitting} className="btn-primary w-full !py-3">
+                {submitting ? 'Signing in...' : 'Continue'}
+              </button>
+            </form>
+          ) : (
+            <div className="space-y-5">
+              <p className="text-center text-sm text-slate-600">
+                {deliveryMethod === 'sms'
+                  ? `Enter the 6-digit code sent by SMS to ${otpSentTo}`
+                  : `Enter the 6-digit code sent to ${otpSentTo}`}
+              </p>
 
-          <p className="mt-6 text-center text-sm text-slate-500">
-            <Link to="/" className="font-semibold text-blue-700 hover:underline">
-              ← Back to website
-            </Link>
-          </p>
+              <OtpInput
+                value={otp}
+                onChange={(code) => {
+                  setOtp(code);
+                  if (errors.otp) setErrors({});
+                }}
+                onComplete={submitOtp}
+                disabled={submitting}
+                error={Boolean(errors.otp)}
+                autoFocus
+              />
+
+              <FormError message={errors.otp} />
+
+              {submitting && (
+                <div className="flex items-center justify-center gap-2 text-sm font-medium text-blue-700">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Verifying...
+                </div>
+              )}
+
+              <div className="text-center text-sm">
+                <button
+                  type="button"
+                  onClick={handleResendOtp}
+                  disabled={submitting}
+                  className="font-semibold text-blue-700 hover:underline disabled:opacity-50"
+                >
+                  Resend code
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

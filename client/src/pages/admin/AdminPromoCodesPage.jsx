@@ -4,6 +4,7 @@ import { Copy, X } from 'lucide-react';
 import api from '../../api/client';
 import { useToast } from '../../context/ToastContext';
 import AdminPageHeader from '../../components/admin/AdminPageHeader';
+import PromoCheckoutToggle from '../../components/admin/PromoCheckoutToggle';
 
 const PACKAGE_OPTIONS = [
   { value: 'all', label: 'All products' },
@@ -48,6 +49,42 @@ const formatDiscount = (promo) => {
 
 const formatUsed = (promo) => (promo.usageCount > 0 ? String(promo.usageCount) : '—');
 
+const getApiErrorMessage = (err, fallback) => {
+  const status = err.response?.status;
+  const message = err.response?.data?.message;
+
+  if (status === 503) {
+    return message || 'Server database is not connected. Update MONGODB_URI on the server and redeploy.';
+  }
+  if (status === 403) {
+    return message || 'Session expired. Log out and sign in again.';
+  }
+  if (status === 404) {
+    return 'Promo API not found. Restart the backend server (npm run dev) and try again.';
+  }
+  return message || fallback;
+};
+
+async function createPromoBatch(payload) {
+  try {
+    const { data } = await api.post('/admin/promos/bulk', payload);
+    return data;
+  } catch (err) {
+    if (err.response?.status !== 404) throw err;
+
+    const count = Math.min(Math.max(Number(payload.count) || 1, 1), 100);
+    const { count: _omit, ...settings } = payload;
+    const promos = [];
+
+    for (let i = 0; i < count; i += 1) {
+      const { data } = await api.post('/admin/promos', settings);
+      promos.push(data.promo);
+    }
+
+    return { promos, count: promos.length };
+  }
+}
+
 const copyText = async (text, toast, message) => {
   try {
     await navigator.clipboard.writeText(text);
@@ -72,7 +109,7 @@ export default function AdminPromoCodesPage() {
   });
 
   const generatePromos = useMutation({
-    mutationFn: (payload) => api.post('/admin/promos/bulk', payload).then((r) => r.data),
+    mutationFn: (payload) => createPromoBatch(payload),
     onSuccess: async (data) => {
       queryClient.invalidateQueries({ queryKey: ['admin-promos'] });
       const codes = (data.promos || []).map((p) => p.code);
@@ -85,7 +122,7 @@ export default function AdminPromoCodesPage() {
         await copyText(codes.join('\n'), toast, `${codes.length} codes copied to clipboard.`);
       }
     },
-    onError: (err) => toast(err.response?.data?.message || 'Could not generate promos.', 'error'),
+    onError: (err) => toast(getApiErrorMessage(err, 'Could not generate promos.'), 'error'),
   });
 
   const updatePromo = useMutation({
@@ -130,7 +167,14 @@ export default function AdminPromoCodesPage() {
   const allGeneratedCodes = generatedBatch.map((p) => p.code).join('\n');
 
   if (isLoading) return <div className="admin-panel h-48 animate-pulse bg-slate-100" />;
-  if (isError) return <div className="admin-panel text-sm text-red-600">Could not load promo codes.</div>;
+  if (isError) {
+    return (
+      <div className="admin-panel space-y-2 text-sm text-red-700">
+        <p>Could not load promo codes.</p>
+        <p className="text-slate-600">If you are on the live site, the server database may be offline. Check MongoDB Atlas and Vercel env vars.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8">
@@ -139,9 +183,12 @@ export default function AdminPromoCodesPage() {
           title="Promo Codes"
           subtitle="Generate one or many discount codes at once. Full codes are shown after generation."
         />
-        <button type="button" onClick={() => setShowForm((v) => !v)} className="btn-primary">
-          {showForm ? 'Cancel' : 'Generate Promo Codes'}
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <PromoCheckoutToggle compact />
+          <button type="button" onClick={() => setShowForm((v) => !v)} className="btn-primary">
+            {showForm ? 'Cancel' : 'Generate Promo Codes'}
+          </button>
+        </div>
       </div>
 
       {showForm && (

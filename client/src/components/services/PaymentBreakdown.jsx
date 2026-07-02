@@ -4,7 +4,7 @@ import { formatCurrency } from '../../utils/validation';
 function getDisplayTotal(breakdown) {
   if (breakdown.isFreeOrder) return 0;
   if (breakdown.discountedPrice != null) return breakdown.discountedPrice;
-  return Math.max(0, breakdown.packagePrice - (breakdown.promoDiscount || 0));
+  return Math.max(0, (breakdown.packagePrice ?? 0) - (breakdown.promoDiscount ?? 0));
 }
 
 export default function PaymentBreakdown({ breakdown, loading }) {
@@ -30,7 +30,7 @@ export default function PaymentBreakdown({ breakdown, loading }) {
   return (
     <AnimatePresence mode="wait">
       <motion.div
-        key={`${breakdown.packagePrice}-${breakdown.totalPayable}`}
+        key={`${breakdown.packagePrice}-${getDisplayTotal(breakdown)}`}
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: 16 }}

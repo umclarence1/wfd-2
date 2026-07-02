@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import Slider from '../models/Slider.js';
 import SiteSettings from '../models/SiteSettings.js';
-import PromoCode from '../models/PromoCode.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import { noCache } from '../middleware/auth.js';
 
@@ -24,8 +23,21 @@ router.get(
     if (!settings) {
       settings = await SiteSettings.create({});
     }
-    const { providerApiKeyEncrypted, contactEmail, ...publicSettings } = settings;
-    res.json({ success: true, settings: publicSettings });
+    const {
+      providerApiKeyEncrypted,
+      contactEmail,
+      apiProviderSettings,
+      paystackPublicKey,
+      ...publicSettings
+    } = settings;
+
+    res.json({
+      success: true,
+      settings: {
+        ...publicSettings,
+        paystackPublicKey: paystackPublicKey || process.env.PAYSTACK_PUBLIC_KEY || '',
+      },
+    });
   })
 );
 
@@ -33,18 +45,16 @@ router.get(
   '/promos',
   noCache,
   asyncHandler(async (_req, res) => {
-    const now = new Date();
-    const promos = await PromoCode.find({
-      isActive: true,
-      expiryDate: { $gt: now },
-    })
-      .sort({ createdAt: -1 })
-      .select('code description discountType discountValue expiryDate usageLimit usageCount createdAt')
-      .lean();
+    const settings = await SiteSettings.findOne().lean();
+    if (!settings?.promoCheckoutEnabled) {
+      return res.json({ success: true, promos: [], promoCheckoutEnabled: false });
+    }
 
     res.json({
       success: true,
-      promos: promos.filter((promo) => promo.usageLimit === null || promo.usageCount < promo.usageLimit),
+      promoCheckoutEnabled: true,
+      message: 'Promo codes can be applied at checkout when enabled by the store.',
+      promos: [],
     });
   })
 );

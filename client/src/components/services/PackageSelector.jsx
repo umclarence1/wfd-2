@@ -1,8 +1,6 @@
 import { useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
-import api from '../../api/client';
-import { PackageSkeleton } from '../ui/Skeleton';
+import { usePackagesByCategory } from '../../hooks/usePackages';
 import { formatCurrency } from '../../utils/validation';
 import { getNetworkBrandColors } from '../../constants/networkColors';
 
@@ -13,12 +11,7 @@ export default function PackageSelector({
   summaryOnly = false,
   hideSummary = false,
 }) {
-  const { data: packages = [], isLoading, isError, refetch } = useQuery({
-    queryKey: ['packages', category],
-    queryFn: () => api.get('/packages', { params: { category } }).then((r) => r.data.packages),
-    staleTime: 0,
-    refetchOnWindowFocus: true,
-  });
+  const { packages, isError, refetch, isFetching } = usePackagesByCategory(category);
 
   const available = packages.filter((p) => p.isActive !== false && p.isAvailable !== false);
 
@@ -27,20 +20,23 @@ export default function PackageSelector({
     onSelect(available[0]);
   }, [summaryOnly, available, selected, onSelect]);
 
-  if (isLoading) return <PackageSkeleton />;
-
   if (isError) {
     return (
-      <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-center text-red-200">
+      <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-center text-sm font-medium text-red-800">
         <p>Could not load packages. Is the server running?</p>
-        <button type="button" onClick={() => refetch()} className="btn-secondary mt-3 !py-2 text-sm">Retry</button>
+        <button type="button" onClick={() => refetch()} className="btn-secondary mt-3 !py-2 text-sm">
+          Retry
+        </button>
       </div>
     );
   }
 
   if (!available.length) {
+    if (isFetching) {
+      return <p className="text-sm font-medium text-gray-600">Loading packages...</p>;
+    }
     return (
-      <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-amber-200">
+      <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-center text-sm font-semibold text-amber-900">
         No packages available. Please check back later.
       </div>
     );
@@ -73,10 +69,10 @@ export default function PackageSelector({
         {selected && !hideSummary && (
           <motion.div
             key={selected._id}
-            initial={{ opacity: 0, y: 16 }}
+            initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 16 }}
-            transition={{ duration: 0.25, ease: 'easeOut' }}
+            exit={{ opacity: 0, y: 8 }}
+            transition={{ duration: 0.15 }}
             className={`rounded-xl border p-4 transition-all duration-300 ease-out hover:shadow-md ${brand.summaryBox} ${summaryOnly ? '' : 'mt-6'}`}
           >
             <p className="text-sm text-gray-600">
@@ -90,12 +86,12 @@ export default function PackageSelector({
         )}
       </AnimatePresence>
 
-      {summaryOnly && !selected && !isLoading && available.length > 0 && (
-        <p className="text-sm text-gray-500">Loading checker details...</p>
+      {summaryOnly && !selected && isFetching && (
+        <p className="text-sm font-medium text-gray-600">Loading checker details...</p>
       )}
 
-      {summaryOnly && !isLoading && !available.length && (
-        <p className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+      {summaryOnly && !isFetching && !available.length && (
+        <p className="rounded-xl border border-red-200 bg-red-50 p-4 text-center text-sm font-semibold text-red-800">
           This checker is currently out of stock.
         </p>
       )}

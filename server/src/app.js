@@ -3,6 +3,8 @@ import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import mongoSanitize from 'express-mongo-sanitize';
+import mongoose from 'mongoose';
+import connectDB from './config/db.js';
 import { env } from './config/env.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { apiLimiter } from './middleware/rateLimit.js';
@@ -36,21 +38,47 @@ const maintenanceCheck = async (req, res, next) => {
 
 export const createApp = (io = noopIo) => {
   const app = express();
+  app.set('trust proxy', 1);
   app.set('io', io);
 
   app.use(helmet({
     crossOriginResourcePolicy: { policy: 'cross-origin' },
     contentSecurityPolicy: env.nodeEnv === 'production' ? undefined : false,
+    referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+    hsts: env.nodeEnv === 'production' ? { maxAge: 31536000, includeSubDomains: true } : false,
   }));
 
   app.use(cors({
     origin: env.nodeEnv === 'production'
-      ? env.clientUrl
+      ? (origin, cb) => {
+          const allowedOrigins = [
+            env.clientUrl,
+            'https://client-pied-chi-88.vercel.app',
+            'https://wilberforcedataservice.com',
+            'https://www.wilberforcedataservice.com',
+          ].filter(Boolean);
+          if (
+            !origin
+            || allowedOrigins.includes(origin)
+            || /^https:\/\/[\w-]+\.vercel\.app$/.test(origin)
+          ) {
+            cb(null, true);
+            return;
+          }
+          cb(null, false);
+        }
       : (origin, cb) => cb(null, !origin || /^http:\/\/localhost:\d+$/.test(origin)),
     credentials: true,
   }));
 
-  app.use(express.json({ limit: '10mb' }));
+  app.use(express.json({
+    limit: '10mb',
+    verify: (req, _res, buf) => {
+      if (req.originalUrl === '/api/payments/webhook') {
+        req.rawBody = buf;
+      }
+    },
+  }));
   app.use(express.urlencoded({ extended: true }));
   app.use(cookieParser());
   app.use(mongoSanitize());
@@ -65,8 +93,20 @@ export const createApp = (io = noopIo) => {
   app.use('/api', apiLimiter);
   app.use(maintenanceCheck);
 
-  app.get('/api/health', (_req, res) => {
-    res.json({ success: true, message: 'WDS API is running' });
+  app.get('/api/health', async (_req, res) => {
+    try {
+      await connectDB();
+    } catch {
+      // reported below via readyState
+    }
+    const dbState = mongoose.connection.readyState;
+    const dbStatus = { 0: 'disconnected', 1: 'connected', 2: 'connecting', 3: 'disconnecting' }[dbState] || 'unknown';
+    res.json({
+      success: true,
+      message: 'Wilberforce Data Service API is running',
+      database: dbStatus,
+      env: process.env.NODE_ENV || 'development',
+    });
   });
 
   app.get('/api/csrf-token', getCsrfToken);

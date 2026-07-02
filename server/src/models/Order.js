@@ -27,6 +27,7 @@ const orderSchema = new mongoose.Schema(
       default: 'pending',
     },
     paymentReference: { type: String, unique: true, sparse: true },
+    idempotencyKey: { type: String, unique: true, sparse: true },
     paystackTransactionId: String,
     providerReference: String,
     providerId: String,
