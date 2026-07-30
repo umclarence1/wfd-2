@@ -72,11 +72,12 @@ export default defineConfig({
             handler: 'NetworkOnly',
           },
           {
-            urlPattern: ({ request }) => request.mode === 'navigate',
-            handler: 'NetworkFirst',
+            urlPattern: ({ request, url }) =>
+              request.mode === 'navigate' || url.pathname.startsWith('/admin'),
+            // Never serve a cached shell for navigations — stale HTML after deploy
+            // points at old hashed JS/CSS and whitescreens the admin (and site).
+            handler: 'NetworkOnly',
             options: {
-              cacheName: 'pages-cache-v4',
-              networkTimeoutSeconds: 4,
               plugins: [
                 {
                   handlerDidError: async () =>
@@ -90,7 +91,7 @@ export default defineConfig({
             urlPattern: ({ request }) => request.destination === 'image',
             handler: 'CacheFirst',
             options: {
-              cacheName: 'images-cache-v4',
+              cacheName: 'images-cache-v5',
               expiration: {
                 maxEntries: 80,
                 maxAgeSeconds: 60 * 60 * 24 * 30,

@@ -11,7 +11,7 @@ export const protect = asyncHandler(async (req, _res, next) => {
     throw new AppError('Not authorized. Please log in.', 401, 'UNAUTHORIZED');
   }
 
-  const decoded = jwt.verify(token, env.jwt.accessSecret);
+  const decoded = jwt.verify(token, env.jwt.accessSecret, { algorithms: ['HS256'] });
   const user = await User.findById(decoded.id).select('-password');
 
   if (!user) throw new AppError('User not found.', 401, 'UNAUTHORIZED');
@@ -27,7 +27,7 @@ export const optionalAuth = asyncHandler(async (req, _res, next) => {
   if (!token) return next();
 
   try {
-    const decoded = jwt.verify(token, env.jwt.accessSecret);
+    const decoded = jwt.verify(token, env.jwt.accessSecret, { algorithms: ['HS256'] });
     req.user = await User.findById(decoded.id).select('-password');
   } catch {
     // ignore invalid token

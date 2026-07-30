@@ -30,6 +30,8 @@ import {
   getQueuedOrders,
 } from '../services/apiProviderService.js';
 import { retryQueuedProviderOrders } from '../services/orderRetryService.js';
+import { escapeRegex } from '../utils/escapeRegex.js';
+import { isSafeHttpUrl } from '../utils/providerUrl.js';
 import { encrypt } from '../utils/encryption.js';
 import { env } from '../config/env.js';
 
@@ -54,6 +56,7 @@ const PAID_ORDER_FILTER = { paymentStatus: 'paid' };
 // Analytics
 router.get(
   '/analytics',
+  requirePermission('analytics'),
   asyncHandler(async (_req, res) => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -85,13 +88,16 @@ router.get(
 );
 
 // Packages
-router.get('/packages', asyncHandler(async (_req, res) => {
+router.get('/packages', requirePermission('packages'), asyncHandler(async (_req, res) => {
   const packages = await Package.find().sort({ category: 1, displayOrder: 1 });
   res.json({ success: true, packages });
 }));
 
-router.post('/packages', asyncHandler(async (req, res) => {
+router.post('/packages', requirePermission('packages'), asyncHandler(async (req, res) => {
   const { displayOrder: _displayOrder, ...body } = req.body;
+  if (!(Number(body.price) > 0)) {
+    throw new AppError('Package price must be greater than 0.', 400);
+  }
   const pkg = await Package.create(body);
   await reorderCategoryPackages(pkg.category);
   const ordered = await Package.findById(pkg._id);
@@ -101,7 +107,7 @@ router.post('/packages', asyncHandler(async (req, res) => {
   res.status(201).json({ success: true, package: ordered });
 }));
 
-router.put('/packages/:id', asyncHandler(async (req, res) => {
+router.put('/packages/:id', requirePermission('packages'), asyncHandler(async (req, res) => {
   const existing = await Package.findById(req.params.id);
   if (!existing) throw new AppError('Package not found.', 404);
 
@@ -111,6 +117,9 @@ router.put('/packages/:id', asyncHandler(async (req, res) => {
     adminPaused: _adminPaused,
     ...updates
   } = req.body;
+  if (updates.price !== undefined && !(Number(updates.price) > 0)) {
+    throw new AppError('Package price must be greater than 0.', 400);
+  }
   const pkg = await Package.findByIdAndUpdate(req.params.id, updates, { new: true, runValidators: true });
 
   const sizeOrPriceChanged =
@@ -132,7 +141,7 @@ router.put('/packages/:id', asyncHandler(async (req, res) => {
   res.json({ success: true, package: refreshed });
 }));
 
-router.delete('/packages/:id', asyncHandler(async (req, res) => {
+router.delete('/packages/:id', requirePermission('packages'), asyncHandler(async (req, res) => {
   const pkg = await Package.findByIdAndDelete(req.params.id);
   if (!pkg) throw new AppError('Package not found.', 404);
   await reorderCategoryPackages(pkg.category);
@@ -142,7 +151,7 @@ router.delete('/packages/:id', asyncHandler(async (req, res) => {
   res.json({ success: true });
 }));
 
-router.patch('/packages/:id/availability', asyncHandler(async (req, res) => {
+router.patch('/packages/:id/availability', requirePermission('packages'), asyncHandler(async (req, res) => {
   if (typeof req.body.isAvailable !== 'boolean') {
     throw new AppError('isAvailable must be true or false.', 400);
   }
@@ -165,7 +174,7 @@ router.patch('/packages/:id/availability', asyncHandler(async (req, res) => {
   res.json({ success: true, package: pkg });
 }));
 
-router.patch('/packages/category/:category/availability', asyncHandler(async (req, res) => {
+router.patch('/packages/category/:category/availability', requirePermission('packages'), asyncHandler(async (req, res) => {
   const category = decodeURIComponent(req.params.category);
   if (typeof req.body.isAvailable !== 'boolean') {
     throw new AppError('isAvailable must be true or false.', 400);
@@ -191,16 +200,17 @@ router.patch('/packages/category/:category/availability', asyncHandler(async (re
 }));
 
 // Orders
-router.get('/orders', asyncHandler(async (req, res) => {
+router.get('/orders', requirePermission('orders'), asyncHandler(async (req, res) => {
   const { status, search, category, network, page = 1, limit = 100 } = req.query;
   const filter = { ...PAID_ORDER_FILTER };
   if (status) filter.deliveryStatus = status;
   if (search) {
+    const safe = escapeRegex(String(search).slice(0, 100));
     filter.$or = [
-      { reference: { $regex: search, $options: 'i' } },
-      { email: { $regex: search, $options: 'i' } },
-      { phone: { $regex: search, $options: 'i' } },
-      { packageName: { $regex: search, $options: 'i' } },
+      { reference: { $regex: safe, $options: 'i' } },
+      { email: { $regex: safe, $options: 'i' } },
+      { phone: { $regex: safe, $options: 'i' } },
+      { packageName: { $regex: safe, $options: 'i' } },
     ];
   }
 
@@ -226,7 +236,10 @@ router.get('/orders', asyncHandler(async (req, res) => {
   res.json({ success: true, orders, pagination: { page: Number(page), limit: Number(limit), total } });
 }));
 
-router.delete('/orders/purge-all', asyncHandler(async (req, res) => {
+router.delete('/orders/purge-all', requirePermission('orders'), asyncHandler(async (req, res) => {
+  if (!['admin', 'super_admin'].includes(req.user.role)) {
+    throw new AppError('Only admins can purge all orders.', 403, 'FORBIDDEN');
+  }
   if (req.body?.confirm !== 'DELETE_ALL_ORDERS') {
     throw new AppError('Send { "confirm": "DELETE_ALL_ORDERS" } to purge all orders.', 400);
   }
@@ -244,7 +257,7 @@ router.delete('/orders/purge-all', asyncHandler(async (req, res) => {
   res.json({ success: true, message: 'All orders cleared.', ...result });
 }));
 
-router.patch('/orders/bulk-status', validateBody(orderBulkStatusUpdateSchema), asyncHandler(async (req, res) => {
+router.patch('/orders/bulk-status', requirePermission('orders'), validateBody(orderBulkStatusUpdateSchema), asyncHandler(async (req, res) => {
   const { orderIds, deliveryStatus, paymentStatus } = req.body;
   const updates = {};
   if (deliveryStatus) updates.deliveryStatus = deliveryStatus;
@@ -282,7 +295,7 @@ router.patch('/orders/bulk-status', validateBody(orderBulkStatusUpdateSchema), a
   res.json({ success: true, modifiedCount: result.modifiedCount, orders });
 }));
 
-router.patch('/orders/:id/status', validateBody(orderStatusUpdateSchema), asyncHandler(async (req, res) => {
+router.patch('/orders/:id/status', requirePermission('orders'), validateBody(orderStatusUpdateSchema), asyncHandler(async (req, res) => {
   const updates = {};
   const deliveryStatus = req.body.deliveryStatus || req.body.status;
   if (deliveryStatus) updates.deliveryStatus = deliveryStatus;
@@ -308,7 +321,7 @@ router.patch('/orders/:id/status', validateBody(orderStatusUpdateSchema), asyncH
   res.json({ success: true, order });
 }));
 
-router.post('/orders/:id/resubmit', asyncHandler(async (req, res) => {
+router.post('/orders/:id/resubmit', requirePermission('orders'), asyncHandler(async (req, res) => {
   const order = await Order.findById(req.params.id);
   if (!order) throw new AppError('Order not found.', 404);
   order.retryCount += 1;
@@ -318,13 +331,13 @@ router.post('/orders/:id/resubmit', asyncHandler(async (req, res) => {
   res.json({ success: true, message: 'Order resubmitted.' });
 }));
 
-router.post('/orders/:id/sync-provider', asyncHandler(async (req, res) => {
+router.post('/orders/:id/sync-provider', requirePermission('orders'), asyncHandler(async (req, res) => {
   const result = await syncOrderProviderStatus(req.params.id, req.app.get('io'));
   res.json({ success: true, ...result });
 }));
 
 // Promos
-router.get('/promos', asyncHandler(async (_req, res) => {
+router.get('/promos', requirePermission('promos'), asyncHandler(async (_req, res) => {
   const promos = await PromoCode.find().sort({ createdAt: -1 });
   res.json({ success: true, promos });
 }));
@@ -348,7 +361,7 @@ router.post('/promos/bulk', requirePermission('promos'), validateBody(promoBulkS
   res.status(201).json({ success: true, promos, count: promos.length });
 }));
 
-router.post('/promos', asyncHandler(async (req, res) => {
+router.post('/promos', requirePermission('promos'), asyncHandler(async (req, res) => {
   const body = { ...req.body };
   if (body.code) {
     body.code = String(body.code).trim().toUpperCase();
@@ -368,7 +381,7 @@ router.post('/promos', asyncHandler(async (req, res) => {
   }
 }));
 
-router.put('/promos/:id', asyncHandler(async (req, res) => {
+router.put('/promos/:id', requirePermission('promos'), asyncHandler(async (req, res) => {
   const promo = await PromoCode.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
   if (!promo) throw new AppError('Promo not found.', 404);
   await logAudit({ user: req.user, action: 'UPDATE', resource: 'PromoCode', resourceId: promo._id, req });
@@ -382,13 +395,14 @@ router.delete('/promos/:id', requirePermission('promos'), asyncHandler(async (re
 }));
 
 // Users
-router.get('/users', asyncHandler(async (req, res) => {
+router.get('/users', requirePermission('users'), asyncHandler(async (req, res) => {
   const { search, page = 1, limit = 20 } = req.query;
   const filter = { role: 'user' };
   if (search) {
+    const safe = escapeRegex(String(search).slice(0, 100));
     filter.$or = [
-      { name: { $regex: search, $options: 'i' } },
-      { email: { $regex: search, $options: 'i' } },
+      { name: { $regex: safe, $options: 'i' } },
+      { email: { $regex: safe, $options: 'i' } },
     ];
   }
 
@@ -401,18 +415,18 @@ router.get('/users', asyncHandler(async (req, res) => {
   res.json({ success: true, users, pagination: { page: Number(page), limit: Number(limit), total } });
 }));
 
-router.patch('/users/:id/suspend', asyncHandler(async (req, res) => {
+router.patch('/users/:id/suspend', requirePermission('users'), asyncHandler(async (req, res) => {
   const user = await User.findByIdAndUpdate(req.params.id, { isSuspended: req.body.isSuspended }, { new: true });
   res.json({ success: true, user });
 }));
 
-router.patch('/users/:id/ban', asyncHandler(async (req, res) => {
+router.patch('/users/:id/ban', requirePermission('users'), asyncHandler(async (req, res) => {
   const user = await User.findByIdAndUpdate(req.params.id, { isBanned: req.body.isBanned }, { new: true });
   res.json({ success: true, user });
 }));
 
 // Sliders
-router.get('/sliders', asyncHandler(async (_req, res) => {
+router.get('/sliders', requirePermission('sliders'), asyncHandler(async (_req, res) => {
   const sliders = await Slider.find().sort({ displayOrder: 1 });
   res.json({ success: true, sliders });
 }));
@@ -453,13 +467,13 @@ router.put('/sliders/:id', requirePermission('sliders'), sliderUpload.single('im
   res.json({ success: true, slider });
 }));
 
-router.delete('/sliders/:id', asyncHandler(async (req, res) => {
+router.delete('/sliders/:id', requirePermission('sliders'), asyncHandler(async (req, res) => {
   await Slider.findByIdAndDelete(req.params.id);
   req.app.get('io')?.emit('sliders:updated');
   res.json({ success: true });
 }));
 
-router.patch('/sliders/reorder', asyncHandler(async (req, res) => {
+router.patch('/sliders/reorder', requirePermission('sliders'), asyncHandler(async (req, res) => {
   const { items } = req.body;
   await Promise.all(items.map(({ id, displayOrder }) => Slider.findByIdAndUpdate(id, { displayOrder })));
   req.app.get('io')?.emit('sliders:updated');
@@ -467,12 +481,17 @@ router.patch('/sliders/reorder', asyncHandler(async (req, res) => {
 }));
 
 // Settings
-router.get('/settings', asyncHandler(async (_req, res) => {
+router.get('/settings', requirePermission('settings'), asyncHandler(async (_req, res) => {
   const settings = await getSiteSettings();
   res.json({ success: true, settings });
 }));
 
-router.put('/settings', asyncHandler(async (req, res) => {
+router.put('/settings', requirePermission('settings'), asyncHandler(async (req, res) => {
+  if (req.body.announcementBanner?.link) {
+    if (!isSafeHttpUrl(req.body.announcementBanner.link)) {
+      throw new AppError('Announcement link must be a valid http(s) URL.', 400);
+    }
+  }
   const allowed = [
     'siteName', 'tagline', 'logo', 'favicon', 'contactEmail', 'contactPhone', 'whatsapp',
     'address', 'socialLinks', 'maintenanceMode', 'maintenanceMessage', 'announcementBanner',
@@ -501,12 +520,12 @@ router.patch('/settings/promo-checkout', requirePermission('promo_checkout'), as
 }));
 
 // API provider routing (data bundles + AFA only)
-router.get('/api-providers', asyncHandler(async (_req, res) => {
+router.get('/api-providers', requirePermission('api_providers'), asyncHandler(async (_req, res) => {
   const config = await serializeApiProviderSettingsForAdmin();
   res.json({ success: true, config });
 }));
 
-router.put('/api-providers', asyncHandler(async (req, res) => {
+router.put('/api-providers', requirePermission('api_providers'), asyncHandler(async (req, res) => {
   const config = await updateApiProviderSettings(req.body);
   await logAudit({ user: req.user, action: 'UPDATE', resource: 'ApiProviderSettings', details: req.body, req });
 
@@ -518,41 +537,41 @@ router.put('/api-providers', asyncHandler(async (req, res) => {
   res.json({ success: true, config, autoRetry });
 }));
 
-router.post('/api-providers/test/:providerId', asyncHandler(async (req, res) => {
+router.post('/api-providers/test/:providerId', requirePermission('api_providers'), asyncHandler(async (req, res) => {
   const result = await testProviderConnection(req.params.providerId);
   res.json({ success: result.success, ...result });
 }));
 
-router.get('/api-providers/topdealsgh/balance', asyncHandler(async (req, res) => {
+router.get('/api-providers/topdealsgh/balance', requirePermission('api_providers'), asyncHandler(async (req, res) => {
   const result = await fetchTopDealsGhBalance();
   const autoRetry = await retryQueuedProviderOrders(req.app.get('io'));
   res.json({ success: true, ...result, autoRetry });
 }));
 
-router.get('/api-providers/datamax/balance', asyncHandler(async (req, res) => {
+router.get('/api-providers/datamax/balance', requirePermission('api_providers'), asyncHandler(async (req, res) => {
   const result = await fetchTopDealsGhBalance();
   const autoRetry = await retryQueuedProviderOrders(req.app.get('io'));
   res.json({ success: true, ...result, autoRetry });
 }));
 
-router.get('/api-providers/smart-data-hub/balance', asyncHandler(async (req, res) => {
+router.get('/api-providers/smart-data-hub/balance', requirePermission('api_providers'), asyncHandler(async (req, res) => {
   const result = await fetchSmartDataHubBalance();
   const autoRetry = await retryQueuedProviderOrders(req.app.get('io'));
   res.json({ success: true, ...result, autoRetry });
 }));
 
-router.post('/api-providers/retry-queued', asyncHandler(async (req, res) => {
+router.post('/api-providers/retry-queued', requirePermission('api_providers'), asyncHandler(async (req, res) => {
   const summary = await retryQueuedProviderOrders(req.app.get('io'));
   res.json({ success: true, ...summary });
 }));
 
-router.get('/api-providers/queued', asyncHandler(async (_req, res) => {
+router.get('/api-providers/queued', requirePermission('api_providers'), asyncHandler(async (_req, res) => {
   const orders = await getQueuedOrders();
   res.json({ success: true, orders });
 }));
 
 // Audit logs
-router.get('/audit-logs', asyncHandler(async (req, res) => {
+router.get('/audit-logs', requirePermission('settings'), asyncHandler(async (req, res) => {
   const logs = await AuditLog.find()
     .sort({ createdAt: -1 })
     .limit(100)

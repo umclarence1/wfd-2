@@ -4,6 +4,7 @@ import {
   API_NETWORKS,
   DEFAULT_API_PROVIDER_SETTINGS,
   PROVIDER_IDS,
+  isAlwaysApiNetwork,
   migrateProviderId,
 } from '../config/apiProviders.js';
 
@@ -27,7 +28,13 @@ const normalizeApiProviderSettingsToTopDeals = (stored) => {
 
   for (const { key } of API_NETWORKS) {
     const raw = current.networkProviders?.[key];
-    if (raw === PROVIDER_IDS.DISABLED) {
+    if (isAlwaysApiNetwork(key)) {
+      // Telecel must always use a live API — never Off.
+      networkProviders[key] =
+        raw === PROVIDER_IDS.SMART_DATA_HUB
+          ? PROVIDER_IDS.SMART_DATA_HUB
+          : PROVIDER_IDS.TOPDEALSGH;
+    } else if (raw === PROVIDER_IDS.DISABLED) {
       networkProviders[key] = PROVIDER_IDS.DISABLED;
     } else if (raw === PROVIDER_IDS.SMART_DATA_HUB) {
       networkProviders[key] = PROVIDER_IDS.SMART_DATA_HUB;

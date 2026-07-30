@@ -67,11 +67,8 @@ export const createApp = (io = noopIo) => {
             'https://wilberforcedataservice.com',
             'https://www.wilberforcedataservice.com',
           ].filter(Boolean);
-          if (
-            !origin
-            || allowedOrigins.includes(origin)
-            || /^https:\/\/[\w-]+\.vercel\.app$/.test(origin)
-          ) {
+          // Reject unknown origins (including arbitrary *.vercel.app previews).
+          if (!origin || allowedOrigins.includes(origin)) {
             cb(null, true);
             return;
           }
@@ -82,7 +79,7 @@ export const createApp = (io = noopIo) => {
   }));
 
   app.use(express.json({
-    limit: '10mb',
+    limit: '100kb',
     verify: (req, _res, buf) => {
       const path = String(req.originalUrl || req.url || '');
       if (
@@ -93,7 +90,7 @@ export const createApp = (io = noopIo) => {
       }
     },
   }));
-  app.use(express.urlencoded({ extended: true }));
+  app.use(express.urlencoded({ extended: true, limit: '100kb' }));
   app.use(cookieParser());
   app.use(mongoSanitize());
 
@@ -114,12 +111,15 @@ export const createApp = (io = noopIo) => {
     }
     const dbState = mongoose.connection.readyState;
     const dbStatus = { 0: 'disconnected', 1: 'connected', 2: 'connecting', 3: 'disconnecting' }[dbState] || 'unknown';
-    res.json({
+    const payload = {
       success: true,
       message: 'Wilberforce Data Service API is running',
       database: dbStatus,
-      env: process.env.NODE_ENV || 'development',
-    });
+    };
+    if (env.nodeEnv !== 'production') {
+      payload.env = process.env.NODE_ENV || 'development';
+    }
+    res.json(payload);
   });
 
   app.get('/api/csrf-token', getCsrfToken);

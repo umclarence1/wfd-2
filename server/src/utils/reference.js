@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { customAlphabet } from 'nanoid';
 
 const alphabet = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -8,6 +9,4 @@ export const generateReference = (prefix) => {
   return `${prefix}-${date}-${generate()}`;
 };
 
-export const generateOTP = () => {
-  return Math.floor(100000 + Math.random() * 900000).toString();
-};
+export const generateOTP = () => crypto.randomInt(100000, 1000000).toString();

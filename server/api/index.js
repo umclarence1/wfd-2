@@ -3,7 +3,6 @@ import { validateProductionEnv } from '../src/config/validateEnv.js';
 import { createApp } from '../src/app.js';
 import { autoSeedIfEmpty } from '../src/scripts/autoSeed.js';
 import { migrateSiteSettingsOnBoot } from '../src/services/siteSettingsService.js';
-import { purgeAllOrders, purgeAllCheckers } from '../src/services/orderPurgeService.js';
 import { retryQueuedProviderOrders } from '../src/services/orderRetryService.js';
 import { syncOpenProviderOrders } from '../src/services/orderProviderStatusService.js';
 import { notifyStaleMtnPendingOrders } from '../src/services/mtnPendingNoticeService.js';
@@ -39,14 +38,11 @@ const bootstrap = async () => {
   await migrateSiteSettingsOnBoot();
   await autoSeedIfEmpty();
 
-  if (process.env.CLEAR_ALL_ORDERS === 'true') {
-    const result = await purgeAllOrders();
-    console.log('[PURGE] All orders cleared:', result);
-  }
-
-  if (process.env.CLEAR_ALL_CHECKERS === 'true') {
-    const result = await purgeAllCheckers();
-    console.log('[PURGE] All checkers cleared:', result);
+  // Destructive wipe flags are CLI-only — never run on serverless boot.
+  if (process.env.CLEAR_ALL_ORDERS === 'true' || process.env.CLEAR_ALL_CHECKERS === 'true') {
+    console.warn(
+      '[PURGE] CLEAR_ALL_ORDERS / CLEAR_ALL_CHECKERS are ignored in the API bootstrap. Use a one-shot admin action or CLI script instead.'
+    );
   }
 
   app = createApp();

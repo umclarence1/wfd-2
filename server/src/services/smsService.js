@@ -12,7 +12,10 @@ const normalizeGhanaPhone = (phone) => {
 
 export const sendSMS = async (phone, message) => {
   if (!env.arkesel.apiKey) {
-    console.log('[SMS]', phone, message);
+    if (env.nodeEnv === 'production') {
+      return { success: false, error: 'SMS provider is not configured.' };
+    }
+    console.log('[SMS] Mock send to', phone, `(${String(message || '').length} chars)`);
     return { success: true, mocked: true };
   }
 

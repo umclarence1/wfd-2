@@ -4,6 +4,7 @@ import {
   DEFAULT_API_PROVIDER_SETTINGS,
   PROVIDER_DEFINITIONS,
   PROVIDER_IDS,
+  isAlwaysApiNetwork,
   migrateProviderId,
 } from '../config/apiProviders.js';
 import { decrypt, encrypt } from '../utils/encryption.js';
@@ -11,6 +12,7 @@ import { AppError } from '../middleware/errorHandler.js';
 import { markInsufficientBalanceIfNeeded } from '../utils/providerQueue.js';
 import { getQueuedProviderOrders } from './orderQueueService.js';
 import { getSiteSettings, setSiteSettingsFields } from './siteSettingsService.js';
+import { sanitizeProviderApiUrl } from '../utils/providerUrl.js';
 import {
   testSmartDataHubConnection,
   getSmartDataHubBalance,
@@ -31,10 +33,17 @@ const mergeSettings = (stored) => {
   const networkProviders = {};
   for (const { key } of API_NETWORKS) {
     const storedValue = stored.networkProviders?.[key];
-    networkProviders[key] =
+    let resolved =
       storedValue !== undefined && storedValue !== null && storedValue !== ''
         ? migrateProviderId(storedValue)
         : defaults.networkProviders[key] ?? PROVIDER_IDS.DEFAULT;
+
+    // Telecel can never be Off in effective settings.
+    if (isAlwaysApiNetwork(key) && resolved === PROVIDER_IDS.DISABLED) {
+      resolved = migrateProviderId(stored.defaultProvider) || PROVIDER_IDS.TOPDEALSGH;
+    }
+
+    networkProviders[key] = resolved;
   }
 
   const storedDefault = migrateProviderId(stored.defaultProvider);
@@ -97,6 +106,7 @@ export const getProviderCredentials = async (providerId) => {
   const stored = settings.credentials?.[id] || {};
   const envCreds = getEnvCredentials(id);
   let apiUrl = stored.apiUrl || envCreds.apiUrl || config.defaultUrl;
+  apiUrl = sanitizeProviderApiUrl(id, apiUrl);
   let apiKey = envCreds.apiKey || '';
   let apiSecret = envCreds.apiSecret || '';
 
@@ -129,6 +139,19 @@ export const resolveProviderForCategory = async (category) => {
   const selected = migrateProviderId(
     settings.networkProviders?.[category] || PROVIDER_IDS.DEFAULT
   );
+
+  // Telecel (and any ALWAYS_API network) always resolve to a live provider.
+  if (isAlwaysApiNetwork(category)) {
+    if (
+      selected === PROVIDER_IDS.DISABLED ||
+      selected === PROVIDER_IDS.DEFAULT ||
+      !selected
+    ) {
+      return migrateProviderId(settings.defaultProvider) || PROVIDER_IDS.TOPDEALSGH;
+    }
+    return selected;
+  }
+
   if (selected === PROVIDER_IDS.DISABLED) {
     return PROVIDER_IDS.DISABLED;
   }
@@ -139,6 +162,7 @@ export const resolveProviderForCategory = async (category) => {
 };
 
 export const isNetworkForwardingEnabled = async (category) => {
+  if (isAlwaysApiNetwork(category)) return true;
   const settings = await getApiProviderSettings();
   if (settings.forwardingEnabled === false) return false;
   const selected = migrateProviderId(
@@ -213,8 +237,24 @@ export const updateApiProviderSettings = async (updates) => {
     for (const { key } of API_NETWORKS) {
       const value = updates.networkProviders[key];
       if (value !== undefined && value !== null && value !== '') {
-        next.networkProviders[key] = migrateProviderId(value);
+        const migrated = migrateProviderId(value);
+        // Telecel cannot be turned Off — always keep a live provider.
+        if (isAlwaysApiNetwork(key) && migrated === PROVIDER_IDS.DISABLED) {
+          next.networkProviders[key] =
+            migrateProviderId(next.defaultProvider) || PROVIDER_IDS.TOPDEALSGH;
+        } else {
+          next.networkProviders[key] = migrated;
+        }
       }
+    }
+  }
+
+  // Hard guarantee even if Telecel was previously saved as disabled.
+  if (isAlwaysApiNetwork('Telecel')) {
+    const telecel = next.networkProviders.Telecel;
+    if (!telecel || telecel === PROVIDER_IDS.DISABLED) {
+      next.networkProviders.Telecel =
+        migrateProviderId(next.defaultProvider) || PROVIDER_IDS.TOPDEALSGH;
     }
   }
   if (updates.fulfillmentWebhookUrl !== undefined) {
@@ -225,7 +265,10 @@ export const updateApiProviderSettings = async (updates) => {
       const incoming = updates.credentials[providerId];
       if (!incoming) continue;
       if (incoming.apiUrl !== undefined) {
-        next.credentials[providerId].apiUrl = incoming.apiUrl;
+        next.credentials[providerId].apiUrl = sanitizeProviderApiUrl(
+          providerId,
+          incoming.apiUrl
+        );
       }
       if (incoming.apiKey) {
         next.credentials[providerId].apiKeyEncrypted = encrypt(incoming.apiKey);
@@ -286,29 +329,27 @@ export const fetchDatamaxBalance = fetchTopDealsGhBalance;
 export const submitViaProvider = async (providerId, order, pkg) => {
   const id = migrateProviderId(providerId);
   const creds = await getProviderCredentials(id);
+  const missingCreds =
+    (id === PROVIDER_IDS.SMART_DATA_HUB && (!creds.apiKey || !creds.apiSecret)) ||
+    (id === PROVIDER_IDS.TOPDEALSGH && (!creds.apiKey || !creds.apiSecret)) ||
+    !creds.apiKey;
 
-  if (id === PROVIDER_IDS.SMART_DATA_HUB && (!creds.apiKey || !creds.apiSecret)) {
-    console.log(`[PROVIDER:${id}] Mock delivery (missing key/secret):`, order.reference);
-    return {
-      success: true,
-      reference: `MOCK-${id}-${order.reference}`,
-      mocked: true,
-      providerId: id,
-    };
-  }
-
-  if (id === PROVIDER_IDS.TOPDEALSGH && (!creds.apiKey || !creds.apiSecret)) {
-    console.log(`[PROVIDER:${id}] Mock delivery (missing key/secret):`, order.reference);
-    return {
-      success: true,
-      reference: `MOCK-${id}-${order.reference}`,
-      mocked: true,
-      providerId: id,
-    };
-  }
-
-  if (!creds.apiKey) {
-    console.log(`[PROVIDER:${id}] Mock delivery (no API key):`, order.reference);
+  if (missingCreds) {
+    // Never mock-fulfill paid orders — fail closed (esp. production).
+    if (env.nodeEnv === 'production' || isAlwaysApiNetwork(pkg?.category || order?.category)) {
+      throw new AppError(
+        'Delivery provider is not configured. Set API credentials under Admin → API Providers.',
+        503
+      );
+    }
+    const allowMock = process.env.ALLOW_MOCK_FULFILLMENT === 'true';
+    if (!allowMock) {
+      throw new AppError(
+        'Delivery provider is not configured. Set API credentials or ALLOW_MOCK_FULFILLMENT=true for local testing.',
+        503
+      );
+    }
+    console.log(`[PROVIDER:${id}] Mock delivery (dev only):`, order.reference);
     return {
       success: true,
       reference: `MOCK-${id}-${order.reference}`,

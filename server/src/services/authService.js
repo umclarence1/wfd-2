@@ -150,9 +150,7 @@ export const createAndSendAdminLoginOTP = async () => {
   const emailDelivered = mailResult.success !== false;
 
   if (!emailDelivered) {
-    console.log(
-      `[ADMIN_OTP] Login code: ${otp} (email to ${otpEmail} could not be delivered — use this code to finish sign-in)`
-    );
+    throw new AppError('Could not deliver admin login code. Try again shortly.', 503);
   }
 
   return { otpSentTo: maskEmail(otpEmail), emailDelivered };

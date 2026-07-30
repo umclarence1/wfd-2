@@ -10,6 +10,8 @@ export const ROLE_PERMISSIONS = {
     'analytics',
     'api_providers',
     'promo_checkout',
+    'settings',
+    'users',
   ],
   support: ['orders', 'analytics'],
 };

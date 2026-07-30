@@ -39,6 +39,12 @@ export const NETWORK_API_CODES = {
   'MTN AFA': 'mtn_afa',
 };
 
+/** Networks that must always be submitted to a live API provider (never Off / never mocked). */
+export const ALWAYS_API_NETWORKS = new Set(['Telecel']);
+
+export const isAlwaysApiNetwork = (category) =>
+  ALWAYS_API_NETWORKS.has(String(category || '').trim());
+
 export const DEFAULT_API_PROVIDER_SETTINGS = () => ({
   forwardingEnabled: true,
   defaultProvider: PROVIDER_IDS.TOPDEALSGH,

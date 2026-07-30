@@ -30,7 +30,15 @@ export const markOrderPaidFromPaystack = async ({
     throw new AppError('Order not found for payment reference.', 404);
   }
 
-  if (amountPaid != null && Math.abs(Number(amountPaid) - order.totalAmount) > 0.01) {
+  if (amountPaid == null || !Number.isFinite(Number(amountPaid))) {
+    order.paymentStatus = 'failed';
+    order.failureReason = 'Payment amount missing';
+    await order.save();
+    logSecurityEvent('payment_amount_missing', { paymentReference });
+    throw new AppError('Payment amount missing.', 400);
+  }
+
+  if (Math.abs(Number(amountPaid) - order.totalAmount) > 0.01) {
     order.paymentStatus = 'failed';
     order.failureReason = 'Payment amount mismatch';
     await order.save();

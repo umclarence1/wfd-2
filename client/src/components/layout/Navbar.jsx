@@ -42,11 +42,16 @@ export default function Navbar() {
   }, [settings?.announcementBanner?.enabled]);
 
   return (
-    <div ref={navRef} className="fixed top-0 left-0 right-0 z-50 w-full bg-blue-600 shadow-md">
+    <div ref={navRef} className="fixed top-0 left-0 right-0 z-50 w-full bg-blue-600">
       {settings?.announcementBanner?.enabled && (
-        <div className="border-b border-blue-500 bg-blue-700 px-4 py-2 text-center text-sm font-medium text-white">
-          {settings.announcementBanner.link ? (
-            <a href={settings.announcementBanner.link} className="hover:underline">
+        <div className="bg-blue-600 px-4 py-2 text-center text-sm font-medium text-white">
+          {settings.announcementBanner.link &&
+          /^https?:\/\//i.test(String(settings.announcementBanner.link).trim()) ? (
+            <a
+              href={settings.announcementBanner.link}
+              className="hover:underline"
+              rel="noopener noreferrer"
+            >
               {settings.announcementBanner.text}
             </a>
           ) : (

@@ -36,32 +36,7 @@ const findOrderForTopDealsWebhook = async (payload) => {
     if (order) return order;
   }
 
-  const phone = String(payload?.recipientPhone || '').replace(/\D/g, '');
-  if (phone.length >= 9) {
-    const tail = phone.slice(-9);
-    const openStatuses = ['pending', 'processing', 'verification'];
-    const network = String(payload?.network || '').trim();
-
-    const baseQuery = {
-      paymentStatus: 'paid',
-      deliveryStatus: { $in: openStatuses },
-      phone: { $regex: `${tail}$` },
-    };
-
-    if (network) {
-      const byNetwork = await Order.findOne({
-        ...baseQuery,
-        $or: [
-          { category: network },
-          { category: new RegExp(`^${escapeRegex(network)}`, 'i') },
-        ],
-      }).sort({ createdAt: -1 });
-      if (byNetwork) return byNetwork;
-    }
-
-    return Order.findOne(baseQuery).sort({ createdAt: -1 });
-  }
-
+  // Phone-only matching is too ambiguous — require provider orderId.
   return null;
 };
 

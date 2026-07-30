@@ -64,8 +64,8 @@ export const env = {
   fulfillmentWebhookUrl: process.env.FULFILLMENT_WEBHOOK_URL || '',
   encryptionKey: requireSecret('ENCRYPTION_KEY', 'dev-encryption-key-32-chars!!'),
   paystackChargeRate: 0.02,
-  adminOtpEmail: process.env.ADMIN_OTP_EMAIL?.trim().toLowerCase() || 'wilberforceboanu2002@gmail.com',
-  adminOtpPhone: process.env.ADMIN_OTP_PHONE?.trim() || '0595399837',
+  adminOtpEmail: process.env.ADMIN_OTP_EMAIL?.trim().toLowerCase() || '',
+  adminOtpPhone: process.env.ADMIN_OTP_PHONE?.trim() || '',
   siteSettingsKey:
     process.env.SITE_SETTINGS_KEY?.trim() ||
     (() => {

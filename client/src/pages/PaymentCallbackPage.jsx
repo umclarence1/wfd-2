@@ -27,7 +27,12 @@ export default function PaymentCallbackPage() {
 
     if (!reference) { setStatus('error'); return; }
 
-    api.get(`/orders/verify/${reference}`)
+    const email = sessionStorage.getItem('wds_order_email');
+    const verifyUrl = email
+      ? `/orders/verify/${reference}?email=${encodeURIComponent(email)}`
+      : `/orders/verify/${reference}`;
+
+    api.get(verifyUrl)
       .then(({ data }) => {
         setOrder(data.order);
         setStatus('success');

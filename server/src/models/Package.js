@@ -15,7 +15,7 @@ const packageSchema = new mongoose.Schema(
     name: { type: String, required: true, trim: true },
     category: { type: String, enum: PACKAGE_CATEGORIES, required: true },
     dataAmount: { type: String, trim: true },
-    price: { type: Number, required: true, min: 0 },
+    price: { type: Number, required: true, min: 0.01 },
     description: { type: String, default: '' },
     displayOrder: { type: Number, default: 0 },
     isActive: { type: Boolean, default: true },

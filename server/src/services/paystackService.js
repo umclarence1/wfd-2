@@ -58,12 +58,15 @@ export const verifyWebhookSignature = (req) => {
   }
 
   const signature = req.headers['x-paystack-signature'];
-  if (!signature) return false;
+  if (!signature || typeof signature !== 'string') return false;
 
   const payload = req.rawBody || Buffer.from(JSON.stringify(req.body));
   const hash = crypto.createHmac('sha512', env.paystack.secretKey).update(payload).digest('hex');
 
-  return hash === signature;
+  const left = Buffer.from(hash);
+  const right = Buffer.from(signature);
+  if (left.length !== right.length) return false;
+  return crypto.timingSafeEqual(left, right);
 };
 
 export const calculatePaystackCharge = (packagePrice) => {

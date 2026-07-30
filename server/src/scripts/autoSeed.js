@@ -30,20 +30,32 @@ const buildInitialPackages = () => {
 };
 
 export const autoSeedIfEmpty = async () => {
-  const adminEmail = process.env.ADMIN_EMAIL || 'admin@wds.com';
-  const adminPassword = process.env.ADMIN_PASSWORD || 'Admin@123456';
+  const isProduction = process.env.NODE_ENV === 'production';
+  const adminEmail = process.env.ADMIN_EMAIL?.trim();
+  const adminPassword = process.env.ADMIN_PASSWORD;
 
-  let admin = await User.findOne({ role: 'admin' });
+  let admin = await User.findOne({ role: { $in: ['admin', 'super_admin'] } });
   if (!admin) {
+    if (isProduction) {
+      if (!adminEmail || !adminPassword || adminPassword === 'Admin@123456') {
+        throw new Error(
+          'No admin user found. Set strong ADMIN_EMAIL and ADMIN_PASSWORD before first production boot.'
+        );
+      }
+    }
+
+    const email = adminEmail || 'admin@wds.com';
+    const password = adminPassword || 'Admin@123456';
+
     console.log('Empty database detected — running auto-seed...');
     admin = await User.create({
       name: 'Admin',
-      email: adminEmail,
-      password: adminPassword,
+      email,
+      password,
       role: 'admin',
       isEmailVerified: true,
     });
-    console.log(`Admin created: ${adminEmail}`);
+    console.log(`Admin created: ${email}`);
   }
 
   if ((await Package.countDocuments()) === 0) {

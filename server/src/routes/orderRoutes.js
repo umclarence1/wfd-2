@@ -51,13 +51,17 @@ router.post(
     const validated = await validateOrderInput(req.body, req.user);
     const order = await createOrder({ ...validated, afaDetails: req.body.afaDetails }, req.user, idempotencyKey);
 
-    if (validated.pricing.isFreeOrder || validated.totalAmount === 0) {
+    if (validated.pricing.isFreeOrder === true) {
       await processFreeOrder(order, validated.promoResult, req.user, req.app.get('io'));
       return res.json({
         success: true,
         order: { reference: order.reference, isFreeOrder: true },
         message: 'Free order processed successfully.',
       });
+    }
+
+    if (!(order.totalAmount > 0)) {
+      throw new AppError('Invalid order amount. Contact support.', 400);
     }
 
     const payment = await initializePayment({
@@ -94,9 +98,22 @@ router.get(
     const order = await Order.findOne({ paymentReference: req.params.reference });
     if (!order) throw new AppError('Order not found.', 404);
 
+    // Checker serial/PIN only when the requester proves ownership via matching email.
+    const emailClaim = String(req.query.email || req.headers['x-order-email'] || '')
+      .trim()
+      .toLowerCase();
+    const ownsOrder = Boolean(emailClaim && emailClaim === String(order.email || '').toLowerCase());
+    const includeChecker = ownsOrder;
+
     if (order.paymentStatus === 'paid') {
-      const updated = await Order.findById(order._id).populate('checker', 'serialNumber pin checkerType');
-      return res.json({ success: true, order: sanitizeOrder(updated, { includeChecker: true }), alreadyPaid: true });
+      const updated = includeChecker
+        ? await Order.findById(order._id).populate('checker', 'serialNumber pin checkerType')
+        : order;
+      return res.json({
+        success: true,
+        order: sanitizeOrder(updated, { includeChecker }),
+        alreadyPaid: true,
+      });
     }
 
     const payment = await verifyPayment(req.params.reference);
@@ -107,7 +124,10 @@ router.get(
       throw new AppError('Payment verification failed.', 400);
     }
 
-    const amountPaid = payment.amount != null ? payment.amount / 100 : null;
+    if (payment.amount == null) {
+      throw new AppError('Payment amount missing from provider response.', 400);
+    }
+    const amountPaid = payment.amount / 100;
     const result = await markOrderPaidFromPaystack({
       paymentReference: req.params.reference,
       paystackTransactionId: payment.id,
@@ -115,8 +135,10 @@ router.get(
       io: req.app.get('io'),
     });
 
-    const updated = await Order.findById(result.order._id).populate('checker', 'serialNumber pin checkerType');
-    res.json({ success: true, order: sanitizeOrder(updated, { includeChecker: true }) });
+    const updated = includeChecker
+      ? await Order.findById(result.order._id).populate('checker', 'serialNumber pin checkerType')
+      : result.order;
+    res.json({ success: true, order: sanitizeOrder(updated, { includeChecker }) });
   })
 );
 

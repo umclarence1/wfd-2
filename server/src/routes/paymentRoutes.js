@@ -17,7 +17,13 @@ router.post(
     const event = req.body;
     if (event.event === 'charge.success') {
       const reference = event.data?.reference;
-      const amountPaid = event.data?.amount != null ? event.data.amount / 100 : null;
+      if (!reference) {
+        return res.status(400).json({ success: false, message: 'Missing payment reference.' });
+      }
+      if (event.data?.amount == null) {
+        return res.status(400).json({ success: false, message: 'Missing payment amount.' });
+      }
+      const amountPaid = event.data.amount / 100;
 
       await markOrderPaidFromPaystack({
         paymentReference: reference,

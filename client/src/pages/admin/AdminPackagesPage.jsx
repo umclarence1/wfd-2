@@ -54,7 +54,7 @@ export default function AdminPackagesPage() {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(emptyForm);
 
-  const { data: packages = [], isLoading, isError } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ['admin-packages'],
     queryFn: () => api.get('/admin/packages').then((r) => r.data.packages),
     staleTime: 0,
@@ -62,6 +62,8 @@ export default function AdminPackagesPage() {
     refetchOnWindowFocus: true,
     refetchInterval: import.meta.env.PROD ? 60_000 : false,
   });
+
+  const packages = Array.isArray(data) ? data : [];
 
   const isDataBundle = CATEGORY_CONFIG[form.category]?.serviceType === 'data_bundle';
 

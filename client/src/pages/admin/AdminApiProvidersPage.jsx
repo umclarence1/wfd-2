@@ -7,7 +7,7 @@ import AdminPageHeader from '../../components/admin/AdminPageHeader';
 
 const NETWORKS = [
   { key: 'MTN', label: 'MTN' },
-  { key: 'Telecel', label: 'Telecel' },
+  { key: 'Telecel', label: 'Telecel', alwaysApi: true, hint: 'Always sent to the API — cannot be turned Off' },
   { key: 'AirtelTigo', label: 'AirtelTigo' },
   { key: 'AirtelTigo Big Time', label: 'AirtelTigo Big Time' },
   { key: 'MTN AFA', label: 'AFA Registration', hint: 'MTN AFA via TopDealsGH', highlight: true },
@@ -19,6 +19,8 @@ const PROVIDER_OPTIONS = [
   { value: 'smart_data_hub', label: 'Smart Data Hub' },
   { value: 'disabled', label: 'Off' },
 ];
+
+const ALWAYS_API_PROVIDER_OPTIONS = PROVIDER_OPTIONS.filter((opt) => opt.value !== 'disabled');
 
 const providerLabel = (value) => PROVIDER_OPTIONS.find((opt) => opt.value === value)?.label || value;
 
@@ -238,8 +240,11 @@ export default function AdminApiProvidersPage() {
 
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {NETWORKS.map((network) => {
-            const selected = form.networkProviders[network.key] || 'default';
+            const rawSelected = form.networkProviders[network.key] || 'default';
+            const selected =
+              network.alwaysApi && rawSelected === 'disabled' ? 'topdealsgh' : rawSelected;
             const isOff = selected === 'disabled';
+            const options = network.alwaysApi ? ALWAYS_API_PROVIDER_OPTIONS : PROVIDER_OPTIONS;
 
             return (
             <div
@@ -247,6 +252,8 @@ export default function AdminApiProvidersPage() {
               className={`rounded-xl border p-4 ${
                 isOff
                   ? 'border-red-300 bg-red-50/60'
+                  : network.alwaysApi
+                    ? 'border-emerald-300 bg-emerald-50/40'
                   : network.highlight
                     ? 'border-amber-300 bg-amber-50/50'
                     : 'border-slate-200 bg-white'
@@ -254,13 +261,22 @@ export default function AdminApiProvidersPage() {
             >
               <div className="flex items-start justify-between gap-2">
                 <p className="font-bold text-slate-900">{network.label}</p>
+                {network.alwaysApi && (
+                  <span className="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-800">
+                    Always API
+                  </span>
+                )}
                 {isOff && (
                   <span className="shrink-0 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-red-700">
                     API off
                   </span>
                 )}
               </div>
-              {network.hint && <p className="mt-1 text-xs text-amber-800">{network.hint}</p>}
+              {network.hint && (
+                <p className={`mt-1 text-xs ${network.alwaysApi ? 'text-emerald-800' : 'text-amber-800'}`}>
+                  {network.hint}
+                </p>
+              )}
               <select
                 className={`input-field mt-3 ${isOff ? 'border-red-300 bg-white' : ''}`}
                 value={selected}
@@ -274,14 +290,18 @@ export default function AdminApiProvidersPage() {
                   persistRouting({ networkProviders });
                 }}
               >
-                {PROVIDER_OPTIONS.map((opt) => (
+                {options.map((opt) => (
                   <option key={opt.value} value={opt.value}>
                     {opt.label}
                   </option>
                 ))}
               </select>
               <p className="mt-2 text-xs text-slate-500">
-                {isOff ? 'Orders queue until you turn this network back on.' : `Routing: ${providerLabel(selected)}`}
+                {network.alwaysApi
+                  ? `Always API · ${providerLabel(selected)}`
+                  : isOff
+                    ? 'Orders queue until you turn this network back on.'
+                    : `Routing: ${providerLabel(selected)}`}
               </p>
             </div>
             );

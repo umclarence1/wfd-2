@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import mongoose from 'mongoose';
 import PromoCode from '../models/PromoCode.js';
 import PromoRedemption from '../models/PromoRedemption.js';
@@ -6,24 +7,21 @@ import { AppError } from '../middleware/errorHandler.js';
 
 const PROMO_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
+const randomPromoCode = (length = 8) => {
+  let code = '';
+  for (let i = 0; i < length; i += 1) {
+    code += PROMO_CODE_CHARS[crypto.randomInt(0, PROMO_CODE_CHARS.length)];
+  }
+  return code;
+};
+
 export const generateUniquePromoCode = async (length = 8) => {
   for (let attempt = 0; attempt < 25; attempt += 1) {
-    let code = '';
-    for (let i = 0; i < length; i += 1) {
-      code += PROMO_CODE_CHARS[Math.floor(Math.random() * PROMO_CODE_CHARS.length)];
-    }
+    const code = randomPromoCode(length);
     const exists = await PromoCode.findOne({ code });
     if (!exists) return code;
   }
   throw new AppError('Could not generate a unique promo code. Try again.', 500);
-};
-
-const randomPromoCode = (length = 8) => {
-  let code = '';
-  for (let i = 0; i < length; i += 1) {
-    code += PROMO_CODE_CHARS[Math.floor(Math.random() * PROMO_CODE_CHARS.length)];
-  }
-  return code;
 };
 
 export const createBulkPromoCodes = async ({ count = 1, ...settings }) => {
