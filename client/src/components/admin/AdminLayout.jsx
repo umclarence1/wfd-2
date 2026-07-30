@@ -5,7 +5,6 @@ import {
   Search,
   Package,
   Tag,
-  GraduationCap,
   ShoppingBag,
   Settings,
   Plug,
@@ -14,6 +13,7 @@ import {
   Menu,
   X,
 } from 'lucide-react';
+import OfflineBanner from '../pwa/OfflineBanner';
 import { useAuth } from '../../context/AuthContext';
 import { SITE_NAME } from '../../constants/brand';
 
@@ -22,7 +22,6 @@ const navItems = [
   { to: '/admin/search', label: 'Search', icon: Search },
   { to: '/admin/packages', label: 'Packages', icon: Package },
   { to: '/admin/promo-codes', label: 'Promo Codes', icon: Tag },
-  { to: '/admin/checkers', label: 'Results Checkers', icon: GraduationCap },
   { to: '/admin/orders', label: 'Orders', icon: ShoppingBag },
   { to: '/admin/api-providers', label: 'API Providers', icon: Plug },
   { to: '/admin/settings', label: 'Settings', icon: Settings },
@@ -54,6 +53,7 @@ export default function AdminLayout() {
 
   return (
     <div className="admin-shell min-h-screen lg:flex">
+      <OfflineBanner />
       {sidebarOpen && (
         <button
           type="button"
@@ -66,7 +66,7 @@ export default function AdminLayout() {
       <aside className={`admin-sidebar ${sidebarOpen ? 'admin-sidebar-open' : ''}`}>
         <div className="flex items-start justify-between border-b border-white/10 px-5 py-6">
           <div>
-            <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-amber-400/90">Admin Panel</p>
+            <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-[var(--admin-gold)]">Admin Panel</p>
             <h1 className="mt-1 text-lg font-bold leading-tight text-white">{SITE_NAME}</h1>
           </div>
           <button
@@ -124,11 +124,11 @@ export default function AdminLayout() {
               <Menu className="h-5 w-5" />
             </button>
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-amber-500">Admin</p>
-              <p className="font-bold text-slate-900">{SITE_NAME}</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-[var(--admin-gold)]">Admin</p>
+              <p className="font-bold text-white">{SITE_NAME}</p>
             </div>
           </div>
-          <button type="button" onClick={handleLogout} className="btn-secondary !py-2 text-sm lg:hidden">
+          <button type="button" onClick={handleLogout} className="admin-gold-btn !py-2 text-sm lg:hidden">
             Logout
           </button>
         </header>

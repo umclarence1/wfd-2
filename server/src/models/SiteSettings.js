@@ -2,6 +2,13 @@ import mongoose from 'mongoose';
 
 const siteSettingsSchema = new mongoose.Schema(
   {
+    settingsKey: {
+      type: String,
+      required: true,
+      unique: true,
+      default: 'wilberforce',
+      index: true,
+    },
     siteName: { type: String, default: 'Wilberforce Data Service' },
     tagline: { type: String, default: 'Fast, reliable digital services in Ghana' },
     logo: { type: String, default: '' },
@@ -23,24 +30,27 @@ const siteSettingsSchema = new mongoose.Schema(
       text: { type: String, default: '' },
       link: { type: String, default: '' },
     },
+    promoCheckoutEnabled: { type: Boolean, default: false },
     providerApiUrl: { type: String, default: '' },
     providerApiKeyEncrypted: { type: String, default: '' },
     apiProviderSettings: {
       forwardingEnabled: { type: Boolean, default: true },
       defaultProvider: {
         type: String,
-        enum: ['default', 'smart_data_hub', 'datamax'],
-        default: 'smart_data_hub',
+        enum: ['default', 'smart_data_hub', 'datamax', 'topdealsgh'],
+        default: 'topdealsgh',
       },
       networkProviders: {
-        MTN: { type: String, default: 'smart_data_hub' },
-        Telecel: { type: String, default: 'datamax' },
-        AirtelTigo: { type: String, default: 'datamax' },
-        'AirtelTigo Big Time': { type: String, default: 'datamax' },
-        'MTN AFA': { type: String, default: 'datamax' },
+        type: mongoose.Schema.Types.Mixed,
+        default: undefined,
       },
       credentials: {
         smart_data_hub: {
+          apiUrl: { type: String, default: '' },
+          apiKeyEncrypted: { type: String, default: '' },
+          apiSecretEncrypted: { type: String, default: '' },
+        },
+        topdealsgh: {
           apiUrl: { type: String, default: '' },
           apiKeyEncrypted: { type: String, default: '' },
           apiSecretEncrypted: { type: String, default: '' },

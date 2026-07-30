@@ -20,6 +20,8 @@ const packageSchema = new mongoose.Schema(
     displayOrder: { type: Number, default: 0 },
     isActive: { type: Boolean, default: true },
     isAvailable: { type: Boolean, default: true },
+    /** When true, admin manually stopped sales — survives server restarts and stock sync. */
+    adminPaused: { type: Boolean, default: false },
     serviceType: {
       type: String,
       enum: ['data_bundle', 'afa_registration', 'result_checker'],
@@ -27,6 +29,8 @@ const packageSchema = new mongoose.Schema(
     },
     afaType: { type: String, enum: ['new', 'renewal', 'status_check'], default: null },
     checkerType: { type: String, enum: ['BECE', 'WASSCE'], default: null },
+    /** Optional override: TopDealsGH package _id (otherwise matched by network + bundle size). */
+    providerPackageId: { type: String, default: null, trim: true },
   },
   { timestamps: true }
 );

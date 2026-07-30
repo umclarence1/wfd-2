@@ -6,13 +6,12 @@ export const ROLE_PERMISSIONS = {
     'packages',
     'orders',
     'promos',
-    'checkers',
     'sliders',
     'analytics',
     'api_providers',
     'promo_checkout',
   ],
-  support: ['orders', 'analytics', 'checkers_read'],
+  support: ['orders', 'analytics'],
 };
 
 export const hasPermission = (role, permission) => {

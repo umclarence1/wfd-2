@@ -1,4 +1,8 @@
-import DataPlanGrid from '../components/services/DataPlanGrid';
+import DataPlanGrid, { DATA_PLANS } from '../components/services/DataPlanGrid';
+
+const SERVICES_PLAN_IDS = ['mtn', 'telecel', 'airteltigo', 'afa', 'waec', 'web-dev'];
+
+const servicePlans = SERVICES_PLAN_IDS.map((id) => DATA_PLANS.find((p) => p.id === id)).filter(Boolean);
 
 export default function ServicesPage() {
   return (
@@ -10,7 +14,7 @@ export default function ServicesPage() {
         <p className="mt-2 text-sm text-gray-600">Tap a service to view plans or get started.</p>
       </div>
       <div className="mt-8">
-        <DataPlanGrid />
+        <DataPlanGrid plans={servicePlans} />
       </div>
     </div>
   );

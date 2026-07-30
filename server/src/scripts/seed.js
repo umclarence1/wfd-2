@@ -4,7 +4,7 @@ import User from '../models/User.js';
 import Package from '../models/Package.js';
 import Slider from '../models/Slider.js';
 import SiteSettings from '../models/SiteSettings.js';
-import Checker from '../models/Checker.js';
+import { DEFAULT_API_PROVIDER_SETTINGS } from '../config/apiProviders.js';
 
 dotenv.config();
 
@@ -127,39 +127,20 @@ const seed = async () => {
   await Slider.insertMany(sliderSlides);
   console.log(`Seeded ${sliderSlides.length} slider slides`);
 
-  const checkerCount = await Checker.countDocuments();
-  if (checkerCount === 0) {
-    const checkers = [];
-    for (let i = 1; i <= 10; i++) {
-      checkers.push({
-        checkerType: 'BECE',
-        serialNumber: `BECE2024${String(i).padStart(6, '0')}`,
-        pin: String(1000 + i),
-        year: '2024',
-        status: 'unused',
-      });
-      checkers.push({
-        checkerType: 'WASSCE',
-        serialNumber: `WASS2024${String(i).padStart(6, '0')}`,
-        pin: String(2000 + i),
-        year: '2024',
-        status: 'unused',
-      });
-    }
-    await Checker.insertMany(checkers);
-    console.log('Created sample checkers');
-  }
+  console.log('Skipping local checker inventory — stock comes from TopDealsGH API.');
 
   const settings = await SiteSettings.findOne();
   if (!settings) {
     await SiteSettings.create({
+      settingsKey: process.env.SITE_SETTINGS_KEY?.trim() || 'wilberforcedataservice.com',
       siteName: 'Wilberforce Data Service',
       tagline: 'Fast, reliable digital services in Ghana',
       contactEmail: '',
       contactPhone: '0595399837',
       address: 'Sunyani',
+      apiProviderSettings: DEFAULT_API_PROVIDER_SETTINGS(),
     });
-    console.log('Created site settings');
+    console.log('Created site settings (TopDealsGH defaults)');
   }
 
   console.log('Seed completed!');

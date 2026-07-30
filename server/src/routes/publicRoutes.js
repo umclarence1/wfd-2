@@ -1,8 +1,9 @@
 import { Router } from 'express';
 import Slider from '../models/Slider.js';
-import SiteSettings from '../models/SiteSettings.js';
+import { getSiteSettings } from '../services/siteSettingsService.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import { noCache } from '../middleware/auth.js';
+import { toPublicSiteSettings } from '../utils/customerSafe.js';
 
 const router = Router();
 
@@ -19,24 +20,22 @@ router.get(
   '/settings',
   noCache,
   asyncHandler(async (_req, res) => {
-    let settings = await SiteSettings.findOne().lean();
-    if (!settings) {
-      settings = await SiteSettings.create({});
-    }
+    const settings = await getSiteSettings(true);
     const {
       providerApiKeyEncrypted,
       contactEmail,
       apiProviderSettings,
       paystackPublicKey,
+      providerApiUrl,
       ...publicSettings
     } = settings;
 
     res.json({
       success: true,
-      settings: {
+      settings: toPublicSiteSettings({
         ...publicSettings,
         paystackPublicKey: paystackPublicKey || process.env.PAYSTACK_PUBLIC_KEY || '',
-      },
+      }),
     });
   })
 );
@@ -45,7 +44,7 @@ router.get(
   '/promos',
   noCache,
   asyncHandler(async (_req, res) => {
-    const settings = await SiteSettings.findOne().lean();
+    const settings = await getSiteSettings(true);
     if (!settings?.promoCheckoutEnabled) {
       return res.json({ success: true, promos: [], promoCheckoutEnabled: false });
     }

@@ -1,7 +1,5 @@
 import { useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
 import { usePackagesByCategory } from '../../hooks/usePackages';
-import { formatCurrency } from '../../utils/validation';
 import { getNetworkBrandColors } from '../../constants/networkColors';
 
 export default function PackageSelector({
@@ -9,9 +7,13 @@ export default function PackageSelector({
   selected,
   onSelect,
   summaryOnly = false,
-  hideSummary = false,
+  packagesOverride = null,
 }) {
-  const { packages, isError, refetch, isFetching } = usePackagesByCategory(category);
+  const hook = usePackagesByCategory(category);
+  const packages = packagesOverride || hook.packages;
+  const isError = packagesOverride ? false : hook.isError;
+  const refetch = hook.refetch;
+  const isFetching = packagesOverride ? false : hook.isFetching;
 
   const available = packages.filter((p) => p.isActive !== false && p.isAvailable !== false);
 
@@ -42,59 +44,38 @@ export default function PackageSelector({
     );
   }
 
-  const brand = getNetworkBrandColors(category);
-
-  return (
-    <div>
-      {!summaryOnly && (
-        <div className="flex flex-wrap gap-3">
-          {available.map((pkg) => {
-            const label = pkg.dataAmount || pkg.name.replace(category, '').trim() || pkg.name;
-            const isActive = selected?._id === pkg._id;
-            return (
-              <button
-                key={pkg._id}
-                type="button"
-                onClick={() => onSelect(pkg)}
-                className={`pill-btn ${brand.pillHover} ${isActive ? brand.pillActive : ''}`}
-              >
-                {label}
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      <AnimatePresence mode="wait">
-        {selected && !hideSummary && (
-          <motion.div
-            key={selected._id}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 8 }}
-            transition={{ duration: 0.15 }}
-            className={`rounded-xl border p-4 transition-all duration-300 ease-out hover:shadow-md ${brand.summaryBox} ${summaryOnly ? '' : 'mt-6'}`}
-          >
-            <p className="text-sm text-gray-600">
-              Selected:{' '}
-              <span className="font-bold text-gray-900">{selected.dataAmount || selected.name}</span>
-            </p>
-            <p className="mt-1 text-sm text-gray-600">
-              Price: <span className={`font-bold ${brand.accent}`}>{formatCurrency(selected.price)}</span>
-            </p>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {summaryOnly && !selected && isFetching && (
-        <p className="text-sm font-medium text-gray-600">Loading checker details...</p>
-      )}
-
-      {summaryOnly && !isFetching && !available.length && (
+  if (summaryOnly) {
+    if (!selected && isFetching) {
+      return <p className="text-sm font-medium text-gray-600">Loading checker details...</p>;
+    }
+    if (!isFetching && !available.length) {
+      return (
         <p className="rounded-xl border border-red-200 bg-red-50 p-4 text-center text-sm font-semibold text-red-800">
           This checker is currently out of stock.
         </p>
-      )}
+      );
+    }
+    return null;
+  }
+
+  const brand = getNetworkBrandColors(category);
+
+  return (
+    <div className="grid grid-cols-4 gap-1.5 sm:gap-2">
+      {available.map((pkg) => {
+        const label = pkg.dataAmount || pkg.name.replace(category, '').trim() || pkg.name;
+        const isActive = selected?._id === pkg._id;
+        return (
+          <button
+            key={pkg._id}
+            type="button"
+            onClick={() => onSelect(pkg)}
+            className={`pkg-box ${brand.boxHover || ''} ${isActive ? brand.boxActive || 'pkg-box-active' : ''}`}
+          >
+            {label}
+          </button>
+        );
+      })}
     </div>
   );
 }

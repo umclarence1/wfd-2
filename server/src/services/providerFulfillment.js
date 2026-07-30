@@ -18,7 +18,7 @@ export const applyProviderFulfillment = (order, providerResponse, { successStatu
       lastQueueAt: new Date().toISOString(),
       idempotencyKey: order.reference,
     };
-    order.failureReason = providerResponse.message || 'Waiting for provider wallet funds.';
+    order.failureReason = 'Your order is queued and will be processed shortly.';
     return { shouldNotify: false, queued: true };
   }
 
@@ -35,7 +35,7 @@ export const applyProviderFulfillment = (order, providerResponse, { successStatu
   }
 
   order.deliveryStatus = 'failed';
-  order.failureReason = providerResponse.message || 'Provider failed';
+  order.failureReason = 'We could not complete delivery at this time. Please contact support if this persists.';
   order.retryCount = (order.retryCount || 0) + 1;
   order.metadata = {
     ...(order.metadata || {}),

@@ -3,7 +3,7 @@ import Order from '../models/Order.js';
 export const findQueuedProviderOrders = (limit = 25) =>
   Order.find({
     paymentStatus: 'paid',
-    deliveryStatus: 'pending',
+    deliveryStatus: { $in: ['pending', 'processing'] },
     'metadata.queuedForProvider': true,
     serviceType: { $in: ['data_bundle', 'afa_registration'] },
   })

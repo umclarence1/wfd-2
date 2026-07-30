@@ -1,15 +1,31 @@
 import { z } from 'zod';
 
 const objectId = z.string().regex(/^[a-f\d]{24}$/i, 'Invalid ID.');
-const phone = z.string().trim().min(1).max(20);
 const email = z.string().trim().email('Invalid email address.').max(254);
 const promoCode = z.string().trim().min(1).max(32).regex(/^[A-Z0-9_-]+$/i, 'Invalid promo code.');
+
+const toDigits = (value) => String(value || '').replace(/\D/g, '');
+
+const phone = z
+  .string({ required_error: 'Phone number must be exactly 10 digits.' })
+  .trim()
+  .transform(toDigits)
+  .refine((v) => /^\d{10}$/.test(v), { message: 'Phone number must be exactly 10 digits.' });
+
+const phoneOptional = z
+  .union([z.string(), z.undefined(), z.null()])
+  .transform((v) => toDigits(v || ''))
+  .refine((v) => v === '' || /^\d{10}$/.test(v), {
+    message: 'Phone number must be exactly 10 digits.',
+  })
+  .optional()
+  .transform((v) => (v === '' || v == null ? undefined : v));
 
 export const registerSchema = z.object({
   name: z.string().trim().min(2).max(100),
   email,
   password: z.string().min(8).max(128),
-  phone: phone.optional(),
+  phone: phoneOptional,
 });
 
 export const loginSchema = z.object({
@@ -21,6 +37,7 @@ export const orderCreateSchema = z.object({
   packageId: objectId,
   phone,
   email,
+  quantity: z.coerce.number().int().min(1).max(5).optional().default(1),
   promoCode: promoCode.optional(),
   afaDetails: z
     .object({
@@ -53,7 +70,15 @@ export const adminLoginResendSchema = z.object({
   pendingToken: z.string().trim().min(1),
 });
 
-const orderStatusEnum = z.enum(['pending', 'processing', 'delivered', 'failed', 'refunded']);
+const orderStatusEnum = z.enum([
+  'pending',
+  'processing',
+  'verification',
+  'delivered',
+  'failed',
+  'refunded',
+  'cancelled',
+]);
 const paymentStatusEnum = z.enum(['pending', 'paid', 'failed', 'refunded']);
 
 export const orderStatusUpdateSchema = z
@@ -90,5 +115,5 @@ export const promoBulkSchema = z.object({
 export const packageBreakdownSchema = z.object({
   promoCode: promoCode.optional(),
   email: email.optional(),
-  phone: phone.optional(),
+  phone: phoneOptional,
 });

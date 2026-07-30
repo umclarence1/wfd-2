@@ -1,69 +1,80 @@
 const TONES = {
   blue: {
-    card: 'border-blue-200/80 bg-gradient-to-br from-blue-50 to-sky-100 shadow-sm shadow-blue-100/50',
-    label: 'text-blue-700/80',
-    value: 'text-blue-950',
-    icon: 'bg-blue-100 text-blue-600 ring-blue-200/80',
+    card: 'border-blue-500/20 bg-[#111827]',
+    label: 'text-slate-400',
+    value: 'text-white',
+    hint: 'text-blue-400',
+    icon: 'bg-blue-500/15 text-blue-400',
   },
   emerald: {
-    card: 'border-emerald-200/80 bg-gradient-to-br from-emerald-50 to-teal-100 shadow-sm shadow-emerald-100/50',
-    label: 'text-emerald-700/80',
-    value: 'text-emerald-950',
-    icon: 'bg-emerald-100 text-emerald-600 ring-emerald-200/80',
+    card: 'border-emerald-500/25 bg-[#111827]',
+    label: 'text-slate-400',
+    value: 'text-white',
+    hint: 'text-emerald-400',
+    icon: 'bg-emerald-500/15 text-emerald-400',
   },
   amber: {
-    card: 'border-amber-200/80 bg-gradient-to-br from-amber-50 to-orange-100 shadow-sm shadow-amber-100/50',
-    label: 'text-amber-800/80',
-    value: 'text-amber-950',
-    icon: 'bg-amber-100 text-amber-600 ring-amber-200/80',
+    card: 'border-amber-500/20 bg-[#111827]',
+    label: 'text-slate-400',
+    value: 'text-white',
+    hint: 'text-amber-400',
+    icon: 'bg-amber-500/15 text-amber-400',
   },
   violet: {
-    card: 'border-violet-200/80 bg-gradient-to-br from-violet-50 to-purple-100 shadow-sm shadow-violet-100/50',
-    label: 'text-violet-700/80',
-    value: 'text-violet-950',
-    icon: 'bg-violet-100 text-violet-600 ring-violet-200/80',
+    card: 'border-violet-500/20 bg-[#111827]',
+    label: 'text-slate-400',
+    value: 'text-white',
+    hint: 'text-violet-400',
+    icon: 'bg-violet-500/15 text-violet-400',
   },
   rose: {
-    card: 'border-rose-200/80 bg-gradient-to-br from-rose-50 to-pink-100 shadow-sm shadow-rose-100/50',
-    label: 'text-rose-700/80',
-    value: 'text-rose-950',
-    icon: 'bg-rose-100 text-rose-600 ring-rose-200/80',
+    card: 'border-rose-500/20 bg-[#111827]',
+    label: 'text-slate-400',
+    value: 'text-white',
+    hint: 'text-rose-400',
+    icon: 'bg-rose-500/15 text-rose-400',
   },
-  slate: {
-    card: 'border-slate-200/80 bg-gradient-to-br from-slate-50 to-slate-100 shadow-sm shadow-slate-100/50',
-    label: 'text-slate-600/80',
-    value: 'text-slate-900',
-    icon: 'bg-slate-100 text-slate-600 ring-slate-200/80',
+  sky: {
+    card: 'border-sky-500/20 bg-[#111827]',
+    label: 'text-slate-400',
+    value: 'text-white',
+    hint: 'text-sky-400',
+    icon: 'bg-sky-500/15 text-sky-400',
   },
-  teal: {
-    card: 'border-teal-200/80 bg-gradient-to-br from-teal-50 to-cyan-100 shadow-sm shadow-teal-100/50',
-    label: 'text-teal-700/80',
-    value: 'text-teal-950',
-    icon: 'bg-teal-100 text-teal-600 ring-teal-200/80',
-  },
-  indigo: {
-    card: 'border-indigo-200/80 bg-gradient-to-br from-indigo-50 to-indigo-100 shadow-sm shadow-indigo-100/50',
-    label: 'text-indigo-700/80',
-    value: 'text-indigo-950',
-    icon: 'bg-indigo-100 text-indigo-600 ring-indigo-200/80',
+  gold: {
+    card: 'border-amber-400/25 bg-[#111827]',
+    label: 'text-slate-400',
+    value: 'text-white',
+    hint: 'text-amber-300',
+    icon: 'bg-amber-400/15 text-amber-300',
   },
 };
 
-export default function AdminStatCard({ label, value, icon: Icon, tone = 'blue' }) {
+export default function AdminStatCard({
+  label,
+  value,
+  hint,
+  icon: Icon,
+  tone = 'blue',
+  className = '',
+}) {
   const style = TONES[tone] || TONES.blue;
 
   return (
     <div
-      className={`group rounded-2xl border p-5 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${style.card}`}
+      className={`group rounded-2xl border p-5 transition-all duration-200 hover:border-white/20 hover:bg-[#151c2c] ${style.card} ${className}`}
     >
       <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className={`text-sm font-medium ${style.label}`}>{label}</p>
-          <p className={`mt-2 text-2xl font-bold tracking-tight ${style.value}`}>{value}</p>
+        <div className="min-w-0">
+          <p className={`text-[11px] font-bold uppercase tracking-[0.14em] ${style.label}`}>{label}</p>
+          <p className={`mt-3 text-2xl font-bold tracking-tight sm:text-3xl ${style.value}`}>{value}</p>
+          {hint != null && hint !== '' && (
+            <p className={`mt-2 text-sm font-medium ${style.hint}`}>{hint}</p>
+          )}
         </div>
         {Icon && (
           <span
-            className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ring-1 transition-transform duration-200 group-hover:scale-105 ${style.icon}`}
+            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition-transform duration-200 group-hover:scale-105 ${style.icon}`}
           >
             <Icon className="h-5 w-5" />
           </span>

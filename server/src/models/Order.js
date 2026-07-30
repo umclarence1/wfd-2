@@ -11,6 +11,7 @@ const orderSchema = new mongoose.Schema(
     category: { type: String, required: true },
     serviceType: { type: String, required: true },
     packagePrice: { type: Number, required: true },
+    quantity: { type: Number, default: 1, min: 1, max: 5 },
     paystackCharge: { type: Number, default: 0 },
     totalAmount: { type: Number, required: true },
     promoCode: { type: String, default: null },
@@ -23,7 +24,7 @@ const orderSchema = new mongoose.Schema(
     },
     deliveryStatus: {
       type: String,
-      enum: ['pending', 'processing', 'delivered', 'failed', 'refunded'],
+      enum: ['pending', 'processing', 'verification', 'delivered', 'failed', 'refunded', 'cancelled'],
       default: 'pending',
     },
     paymentReference: { type: String, unique: true, sparse: true },
@@ -33,6 +34,7 @@ const orderSchema = new mongoose.Schema(
     providerId: String,
     providerResponse: mongoose.Schema.Types.Mixed,
     checker: { type: mongoose.Schema.Types.ObjectId, ref: 'Checker', default: null },
+    checkers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Checker' }],
     afaDetails: {
       fullName: String,
       ghanaCard: String,

@@ -1,15 +1,19 @@
 import { useRef, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
-import { Loader2, Shield } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
+import { useOnlineStatus } from '../../context/OnlineContext';
+import { getOfflineAwareErrorMessage, OFFLINE_ACTION_MESSAGE } from '../../utils/offline';
 import { SITE_NAME, SUPPORT_EMAIL } from '../../constants/brand';
 import FormError, { fieldClass } from '../../components/ui/FormError';
 import OtpInput from '../../components/ui/OtpInput';
+import OfflineBanner from '../../components/pwa/OfflineBanner';
 
 export default function AdminLoginPage() {
   const { adminLogin, adminVerifyOtp, adminResendOtp, isAdmin, loading } = useAuth();
   const { toast } = useToast();
+  const { isOnline } = useOnlineStatus();
   const navigate = useNavigate();
   const verifyLock = useRef(false);
   const [step, setStep] = useState('credentials');
@@ -28,6 +32,10 @@ export default function AdminLoginPage() {
 
   const handleCredentialsSubmit = async (e) => {
     e.preventDefault();
+    if (!isOnline) {
+      toast(OFFLINE_ACTION_MESSAGE, 'error');
+      return;
+    }
     const nextErrors = {};
     if (!email.trim()) nextErrors.email = 'Email is required.';
     if (!password) nextErrors.password = 'Password is required.';
@@ -43,7 +51,7 @@ export default function AdminLoginPage() {
       setStep('otp');
       toast(data.message || 'Verification code sent.', 'success');
     } catch (err) {
-      toast(err.response?.data?.message || 'Login failed.', 'error');
+      toast(getOfflineAwareErrorMessage(err, 'Login failed.'), 'error');
     } finally {
       setSubmitting(false);
     }
@@ -51,6 +59,10 @@ export default function AdminLoginPage() {
 
   const submitOtp = async (code) => {
     if (!pendingToken || verifyLock.current || submitting) return;
+    if (!isOnline) {
+      toast(OFFLINE_ACTION_MESSAGE, 'error');
+      return;
+    }
 
     verifyLock.current = true;
     setSubmitting(true);
@@ -62,8 +74,8 @@ export default function AdminLoginPage() {
       navigate('/admin/dashboard');
     } catch (err) {
       setOtp('');
-      setErrors({ otp: err.response?.data?.message || 'Invalid verification code.' });
-      toast(err.response?.data?.message || 'Invalid verification code.', 'error');
+      setErrors({ otp: getOfflineAwareErrorMessage(err, 'Invalid verification code.') });
+      toast(getOfflineAwareErrorMessage(err, 'Invalid verification code.'), 'error');
     } finally {
       setSubmitting(false);
       verifyLock.current = false;
@@ -72,6 +84,10 @@ export default function AdminLoginPage() {
 
   const handleResendOtp = async () => {
     if (!pendingToken || submitting) return;
+    if (!isOnline) {
+      toast(OFFLINE_ACTION_MESSAGE, 'error');
+      return;
+    }
     setSubmitting(true);
     try {
       const data = await adminResendOtp(pendingToken);
@@ -79,20 +95,19 @@ export default function AdminLoginPage() {
       setErrors({});
       toast(data.message || 'A new code was sent.', 'success');
     } catch (err) {
-      toast(err.response?.data?.message || 'Could not resend code.', 'error');
+      toast(getOfflineAwareErrorMessage(err, 'Could not resend code.'), 'error');
     } finally {
       setSubmitting(false);
     }
   };
 
   return (
-    <div className="admin-login-bg flex min-h-screen items-center justify-center px-4 py-12">
+    <div className="admin-login-bg flex min-h-screen flex-col">
+      <OfflineBanner />
+      <div className="flex flex-1 items-center justify-center px-4 py-12">
       <div className="w-full max-w-md">
         <div className="mb-8 text-center">
-          <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-lg shadow-blue-600/30">
-            <Shield className="h-7 w-7" />
-          </span>
-          <h1 className="mt-5 text-2xl font-bold text-white">{SITE_NAME}</h1>
+          <h1 className="text-2xl font-bold text-white">{SITE_NAME}</h1>
           <p className="mt-2 text-sm text-blue-100">
             {step === 'otp' ? 'Enter your verification code' : 'Sign in to your admin dashboard'}
           </p>
@@ -106,9 +121,7 @@ export default function AdminLoginPage() {
                 <input
                   className={fieldClass(errors.email)}
                   type="text"
-                  inputMode="email"
                   autoComplete="username"
-                  placeholder={SUPPORT_EMAIL}
                   value={email}
                   onChange={(e) => {
                     setEmail(e.target.value);
@@ -131,8 +144,8 @@ export default function AdminLoginPage() {
                 />
                 <FormError message={errors.password} />
               </div>
-              <button type="submit" disabled={submitting} className="btn-primary w-full !py-3">
-                {submitting ? 'Signing in...' : 'Continue'}
+              <button type="submit" disabled={submitting || !isOnline} className="btn-primary w-full !py-3">
+                {submitting ? 'Signing in...' : isOnline ? 'Continue' : 'Offline — login unavailable'}
               </button>
             </form>
           ) : (
@@ -150,7 +163,7 @@ export default function AdminLoginPage() {
                   if (errors.otp) setErrors({});
                 }}
                 onComplete={submitOtp}
-                disabled={submitting}
+                disabled={submitting || !isOnline}
                 error={Boolean(errors.otp)}
                 autoFocus
               />
@@ -168,7 +181,7 @@ export default function AdminLoginPage() {
                 <button
                   type="button"
                   onClick={handleResendOtp}
-                  disabled={submitting}
+                  disabled={submitting || !isOnline}
                   className="font-semibold text-blue-700 hover:underline disabled:opacity-50"
                 >
                   Resend code
@@ -177,6 +190,7 @@ export default function AdminLoginPage() {
             </div>
           )}
         </div>
+      </div>
       </div>
     </div>
   );

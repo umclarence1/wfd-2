@@ -1,6 +1,7 @@
 import Order from '../models/Order.js';
 import PromoCode from '../models/PromoCode.js';
 import { fulfillOrder } from './orderService.js';
+import { retryQueuedProviderOrders } from './orderRetryService.js';
 import { redeemPromoCodeAtomic } from './promoService.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { logSecurityEvent } from './securityLogger.js';
@@ -55,5 +56,6 @@ export const markOrderPaidFromPaystack = async ({
   }
 
   await fulfillOrder(order._id, io);
+  retryQueuedProviderOrders(io).catch(() => {});
   return { order, duplicate: false };
 };

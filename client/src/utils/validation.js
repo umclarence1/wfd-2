@@ -32,11 +32,17 @@ export const detectNetwork = (phone) => {
 
 export const validatePhone = (phone) => {
   const normalized = normalizePhone(phone);
+  if (!normalized) {
+    return { valid: false, error: 'Phone number must be exactly 10 digits.' };
+  }
   if (!/^\d{10}$/.test(normalized)) {
-    return { valid: false, error: 'Phone number must contain exactly 10 digits.' };
+    return { valid: false, error: 'Phone number must be exactly 10 digits.' };
   }
   return { valid: true, normalized };
 };
+
+/** Keep only digits and cap at 10 for phone inputs. */
+export const restrictPhoneInput = (value) => normalizePhone(value).slice(0, 10);
 
 export const getPhonePlaceholder = (category) => {
   const network = CATEGORY_NETWORK_MAP[category];

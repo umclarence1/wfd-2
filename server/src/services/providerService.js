@@ -5,9 +5,9 @@ import {
   submitViaProvider,
   getProviderCredentials,
 } from './apiProviderService.js';
-import { PROVIDER_IDS } from '../config/apiProviders.js';
+import { PROVIDER_IDS, migrateProviderId } from '../config/apiProviders.js';
 import { QUEUE_REASONS } from '../utils/providerQueue.js';
-import { getDatamaxOrderStatus } from './providers/datamaxProvider.js';
+import { getTopDealsGhOrderStatus } from './providers/topdealsghProvider.js';
 import { getSmartDataHubDeliveryStatus } from './providers/smartDataHubProvider.js';
 
 const queueForwardingOff = (order, message) => ({
@@ -57,19 +57,31 @@ export const submitAFARegistration = async (order, pkg) => {
 };
 
 export const checkProviderStatus = async (providerReference, category, providerId) => {
-  const resolvedProvider = providerId || (category ? await resolveProviderForCategory(category) : null);
+  const resolvedProvider = migrateProviderId(
+    providerId || (category ? await resolveProviderForCategory(category) : null)
+  );
 
-  if (resolvedProvider === PROVIDER_IDS.DATAMAX && providerReference) {
-    const creds = await getProviderCredentials(PROVIDER_IDS.DATAMAX);
-    if (!creds.apiKey) return { status: 'unknown' };
+  if (resolvedProvider === PROVIDER_IDS.TOPDEALSGH && providerReference) {
+    const creds = await getProviderCredentials(PROVIDER_IDS.TOPDEALSGH);
+    if (!creds.apiKey || !creds.apiSecret) return { status: 'unknown' };
 
     try {
-      const result = await getDatamaxOrderStatus(creds, providerReference);
+      const result = await getTopDealsGhOrderStatus(creds, providerReference);
       if (result?.success !== true) return { status: 'unknown', raw: result };
 
-      const status = String(result.status || '').toLowerCase();
+      const status = String(result.data?.status || result.status || '').toLowerCase();
       if (['completed', 'delivered', 'success'].includes(status)) return { status: 'delivered', raw: result };
-      if (['failed', 'cancelled', 'canceled'].includes(status)) return { status: 'failed', raw: result };
+      if (['failed', 'cancelled', 'canceled', 'refunded'].includes(status)) {
+        return { status: 'failed', raw: result };
+      }
+      if (['verification', 'verifying', 'number_verification', 'verify'].includes(status)) {
+        return { status: 'verification', raw: result };
+      }
+      // Some responses put the lifecycle word in a note/message
+      const note = `${result.data?.message || ''} ${result.data?.note || ''} ${result.message || ''}`.toLowerCase();
+      if (note.includes('verification') || note.includes('not verified')) {
+        return { status: 'verification', raw: result };
+      }
       return { status: 'processing', raw: result };
     } catch {
       return { status: 'unknown' };

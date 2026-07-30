@@ -1,5 +1,5 @@
 import { Link, NavLink } from 'react-router-dom';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Menu, X } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import api from '../../api/client';
@@ -14,6 +14,7 @@ const navLinks = [
 
 export default function Navbar() {
   const [open, setOpen] = useState(false);
+  const navRef = useRef(null);
 
   const { data: settingsData } = useQuery({
     queryKey: ['settings'],
@@ -24,8 +25,24 @@ export default function Navbar() {
 
   const settings = settingsData || {};
 
+  // Keep content padding aligned with the real (possibly taller) navbar height.
+  useEffect(() => {
+    const el = navRef.current;
+    if (!el) return undefined;
+
+    const update = () => {
+      document.documentElement.style.setProperty('--app-nav-height', `${el.offsetHeight}px`);
+    };
+
+    update();
+
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [settings?.announcementBanner?.enabled]);
+
   return (
-    <div className="fixed top-0 left-0 right-0 z-50 w-full bg-blue-600 shadow-md">
+    <div ref={navRef} className="fixed top-0 left-0 right-0 z-50 w-full bg-blue-600 shadow-md">
       {settings?.announcementBanner?.enabled && (
         <div className="border-b border-blue-500 bg-blue-700 px-4 py-2 text-center text-sm font-medium text-white">
           {settings.announcementBanner.link ? (

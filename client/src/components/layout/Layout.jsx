@@ -5,12 +5,17 @@ import api from '../../api/client';
 import Navbar from './Navbar';
 import Footer from './Footer';
 import WhatsAppFloat from './WhatsAppFloat';
+import OfflineBanner from '../pwa/OfflineBanner';
 import { useSocket } from '../../hooks/useSocket';
+import { useSwipeBack } from '../../hooks/useSwipeBack';
 import { packagesQueryOptions } from '../../hooks/usePackages';
+import { useOnlineStatus } from '../../context/OnlineContext';
 
 export default function Layout() {
   useSocket();
+  useSwipeBack();
   const queryClient = useQueryClient();
+  const { isOnline } = useOnlineStatus();
 
   useEffect(() => {
     queryClient.prefetchQuery(packagesQueryOptions);
@@ -23,8 +28,9 @@ export default function Layout() {
 
   return (
     <div className="flex min-h-screen flex-col">
+      <OfflineBanner />
       <Navbar />
-      <main className="flex-1 pt-[4.25rem]">
+      <main className={`flex-1 ${isOnline ? 'pt-[4.25rem]' : 'pt-[6.75rem]'}`}>
         <Outlet />
       </main>
       <Footer />

@@ -21,32 +21,11 @@ import { initializePayment, getPublicKey, verifyPayment } from '../services/pays
 import { markOrderPaidFromPaystack } from '../services/paymentProcessingService.js';
 import { createAndSendOTP, verifyOTP } from '../services/authService.js';
 import { validateEmail } from '../utils/validation.js';
+import { sanitizeOrderForCustomer } from '../utils/customerSafe.js';
 
 const router = Router();
 
-const sanitizeOrder = (order, { includeChecker = false } = {}) => {
-  const safe = {
-    reference: order.reference,
-    packageName: order.packageName,
-    category: order.category,
-    serviceType: order.serviceType,
-    packagePrice: order.packagePrice,
-    totalAmount: order.totalAmount,
-    paymentStatus: order.paymentStatus,
-    deliveryStatus: order.deliveryStatus,
-    createdAt: order.createdAt,
-  };
-
-  if (includeChecker && order.paymentStatus === 'paid' && order.checker) {
-    safe.checker = {
-      checkerType: order.checker.checkerType,
-      serialNumber: order.checker.serialNumber,
-      pin: order.checker.pin,
-    };
-  }
-
-  return safe;
-};
+const sanitizeOrder = (order, options = {}) => sanitizeOrderForCustomer(order, options);
 
 router.post(
   '/validate',
@@ -166,10 +145,13 @@ router.post(
 
     const orders = await Order.find({ email: emailResult.normalized })
       .sort({ createdAt: -1 })
-      .select('reference packageName phone packagePrice totalAmount deliveryStatus paymentStatus createdAt')
+      .select('reference packageName phone packagePrice totalAmount deliveryStatus paymentStatus createdAt category serviceType')
       .lean();
 
-    res.json({ success: true, orders });
+    res.json({
+      success: true,
+      orders: orders.map((order) => sanitizeOrder(order, { includePhone: true })),
+    });
   })
 );
 

@@ -7,7 +7,6 @@ import AdminOverviewPage from './AdminOverviewPage';
 import AdminSearchPage from './AdminSearchPage';
 import AdminPackagesPage from './AdminPackagesPage';
 import AdminPromoCodesPage from './AdminPromoCodesPage';
-import AdminCheckersPage from './AdminCheckersPage';
 import AdminOrdersPage from './AdminOrdersPage';
 import AdminSettingsPage from './AdminSettingsPage';
 import AdminApiProvidersPage from './AdminApiProvidersPage';
@@ -24,7 +23,6 @@ export default function AdminApp() {
             <Route path="search" element={<AdminSearchPage />} />
             <Route path="packages" element={<AdminPackagesPage />} />
             <Route path="promo-codes" element={<AdminPromoCodesPage />} />
-            <Route path="checkers" element={<AdminCheckersPage />} />
             <Route path="orders" element={<AdminOrdersPage />} />
             <Route path="api-providers" element={<AdminApiProvidersPage />} />
             <Route path="settings" element={<AdminSettingsPage />} />

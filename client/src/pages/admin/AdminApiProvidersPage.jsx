@@ -10,28 +10,33 @@ const NETWORKS = [
   { key: 'Telecel', label: 'Telecel' },
   { key: 'AirtelTigo', label: 'AirtelTigo' },
   { key: 'AirtelTigo Big Time', label: 'AirtelTigo Big Time' },
-  { key: 'MTN AFA', label: 'AFA Registration', hint: 'MTN farmer registration via Datamax', highlight: true },
+  { key: 'MTN AFA', label: 'AFA Registration', hint: 'MTN AFA via TopDealsGH', highlight: true },
 ];
 
 const PROVIDER_OPTIONS = [
   { value: 'default', label: 'Use default' },
+  { value: 'topdealsgh', label: 'TopDealsGH' },
   { value: 'smart_data_hub', label: 'Smart Data Hub' },
-  { value: 'datamax', label: 'Datamax' },
   { value: 'disabled', label: 'Off' },
 ];
 
 const providerLabel = (value) => PROVIDER_OPTIONS.find((opt) => opt.value === value)?.label || value;
 
 const DEFAULT_PROVIDER_OPTIONS = [
+  { value: 'topdealsgh', label: 'TopDealsGH' },
   { value: 'smart_data_hub', label: 'Smart Data Hub' },
-  { value: 'datamax', label: 'Datamax' },
 ];
 
 export default function AdminApiProvidersPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [form, setForm] = useState(null);
-  const [keys, setKeys] = useState({ smart_data_hub: '', smart_data_hub_secret: '', datamax: '' });
+  const [keys, setKeys] = useState({
+    smart_data_hub: '',
+    smart_data_hub_secret: '',
+    topdealsgh: '',
+    topdealsgh_secret: '',
+  });
   const [balance, setBalance] = useState(null);
   const [balanceProvider, setBalanceProvider] = useState('');
 
@@ -58,11 +63,45 @@ export default function AdminApiProvidersPage() {
     }
   }, [config]);
 
+  const saveRouting = useMutation({
+    mutationFn: (payload) => api.put('/admin/api-providers', payload).then((r) => r.data.config),
+    onSuccess: (savedConfig) => {
+      queryClient.setQueryData(['admin-api-providers'], savedConfig);
+      setForm((current) =>
+        current
+          ? {
+              ...current,
+              forwardingEnabled: savedConfig.forwardingEnabled,
+              defaultProvider: savedConfig.defaultProvider,
+              networkProviders: { ...savedConfig.networkProviders },
+            }
+          : current
+      );
+      toast('API routing saved.', 'success');
+    },
+    onError: (err) => toast(err.response?.data?.message || 'Could not save routing.', 'error'),
+  });
+
+  const persistRouting = (partial) => {
+    if (!form) return;
+    saveRouting.mutate({
+      forwardingEnabled: partial.forwardingEnabled ?? form.forwardingEnabled,
+      defaultProvider: partial.defaultProvider ?? form.defaultProvider,
+      networkProviders: partial.networkProviders ?? form.networkProviders,
+      fulfillmentWebhookUrl: form.fulfillmentWebhookUrl,
+    });
+  };
+
   const saveConfig = useMutation({
     mutationFn: (payload) => api.put('/admin/api-providers', payload).then((r) => r.data.config),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-api-providers'] });
-      setKeys({ smart_data_hub: '', smart_data_hub_secret: '', datamax: '' });
+      setKeys({
+        smart_data_hub: '',
+        smart_data_hub_secret: '',
+        topdealsgh: '',
+        topdealsgh_secret: '',
+      });
       toast('API routing saved.', 'success');
     },
     onError: (err) => toast(err.response?.data?.message || 'Save failed.', 'error'),
@@ -74,12 +113,12 @@ export default function AdminApiProvidersPage() {
     onError: (err) => toast(err.response?.data?.message || 'Test failed.', 'error'),
   });
 
-  const fetchDatamaxBalance = useMutation({
-    mutationFn: () => api.get('/admin/api-providers/datamax/balance').then((r) => r.data),
+  const fetchTopDealsGhBalance = useMutation({
+    mutationFn: () => api.get('/admin/api-providers/topdealsgh/balance').then((r) => r.data),
     onSuccess: (data) => {
       setBalance(data);
-      setBalanceProvider('datamax');
-      toast(`Datamax balance: ${data.balance ?? '—'} ${data.currency || 'GHS'}`, 'success');
+      setBalanceProvider('topdealsgh');
+      toast(`TopDealsGH balance: ${data.balance ?? '—'} ${data.currency || 'GHS'}`, 'success');
     },
     onError: (err) => toast(err.response?.data?.message || 'Could not fetch balance.', 'error'),
   });
@@ -129,8 +168,14 @@ export default function AdminApiProvidersPage() {
         apiSecret: keys.smart_data_hub_secret,
       };
     }
-    if (keys.datamax) {
-      payload.credentials.datamax = { apiKey: keys.datamax };
+    if (keys.topdealsgh) {
+      payload.credentials.topdealsgh = { apiKey: keys.topdealsgh };
+    }
+    if (keys.topdealsgh_secret) {
+      payload.credentials.topdealsgh = {
+        ...(payload.credentials.topdealsgh || {}),
+        apiSecret: keys.topdealsgh_secret,
+      };
     }
 
     saveConfig.mutate(payload);
@@ -142,7 +187,7 @@ export default function AdminApiProvidersPage() {
     <div className="space-y-8">
       <AdminPageHeader
         title="API Providers"
-        subtitle="Route data bundles and AFA registration through Smart Data Hub or Datamax. Low-balance orders queue automatically and retry without duplicates."
+        subtitle="All data bundles, AFA, checkers, order status, and number-verification emails go through TopDealsGH. Low-balance orders queue and retry without duplicates."
       />
 
       <div className="admin-panel space-y-6">
@@ -161,7 +206,11 @@ export default function AdminApiProvidersPage() {
             <input
               type="checkbox"
               checked={form.forwardingEnabled}
-              onChange={(e) => setForm({ ...form, forwardingEnabled: e.target.checked })}
+              onChange={(e) => {
+                const forwardingEnabled = e.target.checked;
+                setForm({ ...form, forwardingEnabled });
+                persistRouting({ forwardingEnabled });
+              }}
             />
             Enable forwarding
           </label>
@@ -172,7 +221,11 @@ export default function AdminApiProvidersPage() {
           <select
             className="input-field"
             value={form.defaultProvider}
-            onChange={(e) => setForm({ ...form, defaultProvider: e.target.value })}
+            onChange={(e) => {
+              const defaultProvider = e.target.value;
+              setForm({ ...form, defaultProvider });
+              persistRouting({ defaultProvider });
+            }}
           >
             {DEFAULT_PROVIDER_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
@@ -211,12 +264,15 @@ export default function AdminApiProvidersPage() {
               <select
                 className={`input-field mt-3 ${isOff ? 'border-red-300 bg-white' : ''}`}
                 value={selected}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    networkProviders: { ...form.networkProviders, [network.key]: e.target.value },
-                  })
-                }
+                disabled={saveRouting.isPending}
+                onChange={(e) => {
+                  const networkProviders = {
+                    ...form.networkProviders,
+                    [network.key]: e.target.value,
+                  };
+                  setForm({ ...form, networkProviders });
+                  persistRouting({ networkProviders });
+                }}
               >
                 {PROVIDER_OPTIONS.map((opt) => (
                   <option key={opt.value} value={opt.value}>
@@ -243,11 +299,11 @@ export default function AdminApiProvidersPage() {
           </button>
           <button
             type="button"
-            onClick={() => testProvider.mutate('datamax')}
+            onClick={() => testProvider.mutate('topdealsgh')}
             disabled={testProvider.isPending}
             className="admin-api-btn"
           >
-            Test Datamax
+            Test TopDealsGH
           </button>
           <button
             type="button"
@@ -259,11 +315,11 @@ export default function AdminApiProvidersPage() {
           </button>
           <button
             type="button"
-            onClick={() => fetchDatamaxBalance.mutate()}
-            disabled={fetchDatamaxBalance.isPending}
+            onClick={() => fetchTopDealsGhBalance.mutate()}
+            disabled={fetchTopDealsGhBalance.isPending}
             className="admin-api-btn"
           >
-            Datamax balance
+            TopDealsGH balance
           </button>
           <button
             type="button"
@@ -278,7 +334,7 @@ export default function AdminApiProvidersPage() {
 
         {balance?.balance != null && (
           <p className="text-sm font-semibold text-emerald-700">
-            {balanceProvider === 'smart_data_hub' ? 'Smart Data Hub' : 'Datamax'} wallet: {balance.balance}{' '}
+            {balanceProvider === 'smart_data_hub' ? 'Smart Data Hub' : 'TopDealsGH'} wallet: {balance.balance}{' '}
             {balance.currency || 'GHS'}
           </p>
         )}
@@ -322,23 +378,37 @@ export default function AdminApiProvidersPage() {
           <div className="space-y-3">
             <h3 className="flex items-center gap-2 font-bold text-slate-900">
               <Plug className="h-4 w-4" />
-              Datamax credentials
+              TopDealsGH credentials
             </h3>
             <p className="text-xs text-slate-500">
-              {form.providers?.datamax?.apiUrl}{' '}
-              {form.providers?.datamax?.configured ? '(configured)' : '(not configured)'}
+              {form.providers?.topdealsgh?.apiUrl}{' '}
+              {form.providers?.topdealsgh?.configured ? '(configured)' : '(not configured)'}
             </p>
             <input
               className="input-field"
               type="password"
               placeholder={
-                form.providers?.datamax?.configured
-                  ? `Current key: ${form.providers.datamax.apiKeyHint}`
-                  : 'Paste API key'
+                form.providers?.topdealsgh?.configured
+                  ? `Current key: ${form.providers.topdealsgh.apiKeyHint}`
+                  : 'Paste x-api-key'
               }
-              value={keys.datamax}
-              onChange={(e) => setKeys({ ...keys, datamax: e.target.value })}
+              value={keys.topdealsgh}
+              onChange={(e) => setKeys({ ...keys, topdealsgh: e.target.value })}
             />
+            <input
+              className="input-field"
+              type="password"
+              placeholder={
+                form.providers?.topdealsgh?.configured
+                  ? `Current secret: ${form.providers.topdealsgh.apiSecretHint}`
+                  : 'Paste x-secret-key'
+              }
+              value={keys.topdealsgh_secret}
+              onChange={(e) => setKeys({ ...keys, topdealsgh_secret: e.target.value })}
+            />
+            <p className="text-xs text-slate-500">
+              Agent API: wallet, packages, purchase, AFA, checkers. Whitelist this server IP if required.
+            </p>
           </div>
         </div>
 
@@ -357,13 +427,14 @@ export default function AdminApiProvidersPage() {
         </button>
 
         <p className="text-xs leading-relaxed text-slate-500">
+          TopDealsGH: {form.providers?.topdealsgh?.apiUrl} — purchase, afa/register, checker/purchase, orders/:id
+          <br />
+          Webhook URL (add in TopDealsGH → Developer API → Security):{' '}
+          {'https://<your-wds-server>/api/webhooks/topdeals'}
+          <br />
           Smart Data Hub: {form.providers?.smart_data_hub?.apiUrl} — HMAC auth, GET /test, POST /orders/create
           <br />
-          Datamax data API: {form.providers?.datamax?.apiUrl} — place_order, check_balance, order_status
-          <br />
-          Datamax AFA API: https://datamax.site/wp-json/afa/v1/register
-          <br />
-          Auth header: X-API-KEY (data bundles) · api_key in body (AFA)
+          Auth: x-api-key + x-secret-key (TopDealsGH)
           {form.fulfillmentWebhookUrl && (
             <>
               <br />

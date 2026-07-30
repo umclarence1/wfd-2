@@ -8,17 +8,21 @@ export default function HomePage() {
   return (
     <div className="px-4 py-8 sm:py-10">
       <div className="mx-auto max-w-7xl">
-        <div>
-          <h1 className="max-w-3xl text-base font-bold tracking-tight text-gray-900 sm:text-lg">
-            Affordable Data Bundles, Results Checkers &amp; Modern Websites
+        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-blue-600 via-blue-700 to-blue-800 px-5 py-7 text-white shadow-lg shadow-blue-900/15 sm:px-8 sm:py-9">
+          <div
+            className="pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full bg-sky-300/20 blur-2xl"
+            aria-hidden="true"
+          />
+          <div
+            className="pointer-events-none absolute -bottom-12 left-1/3 h-36 w-36 rounded-full bg-indigo-300/15 blur-2xl"
+            aria-hidden="true"
+          />
+          <h1 className="relative max-w-3xl text-xl font-extrabold leading-snug tracking-tight sm:text-2xl md:text-3xl">
+            Buy affordable data bundles and results checkers
           </h1>
-          <p className="mt-2 max-w-3xl text-xs font-bold leading-relaxed tracking-tight text-gray-900 sm:text-sm">
-            Buy data on MTN, Telecel &amp; AirtelTigo. Purchase BECE &amp; WASSCE result checkers.
-            Need a professional and modern website for your business? We&apos;ve got you covered.
-          </p>
         </div>
 
-        <div className="mt-6">
+        <div className="mt-8">
           <DataPlanGrid plans={dataPlans} />
         </div>
       </div>

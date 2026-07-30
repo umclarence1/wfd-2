@@ -1,7 +1,10 @@
 import { AlertCircle } from 'lucide-react';
 
-export function fieldClass(hasError) {
-  return hasError ? 'input-field input-field-error' : 'input-field';
+export function fieldClass(hasError, focusClass = '') {
+  if (hasError) {
+    return 'input-field input-field-error';
+  }
+  return `input-field ${focusClass}`.trim();
 }
 
 export default function FormError({ message }) {

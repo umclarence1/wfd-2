@@ -1,15 +1,13 @@
 import { Router } from 'express';
-import xlsx from 'xlsx';
 import { v2 as cloudinary } from 'cloudinary';
 import Order from '../models/Order.js';
 import Package from '../models/Package.js';
 import User from '../models/User.js';
-import Checker from '../models/Checker.js';
 import PromoCode from '../models/PromoCode.js';
 import PromoRedemption from '../models/PromoRedemption.js';
 import { generateUniquePromoCode, createBulkPromoCodes } from '../services/promoService.js';
 import Slider from '../models/Slider.js';
-import SiteSettings from '../models/SiteSettings.js';
+import { getSiteSettings, setSiteSettingsFields } from '../services/siteSettingsService.js';
 import AuditLog from '../models/AuditLog.js';
 import { AppError, asyncHandler } from '../middleware/errorHandler.js';
 import { protect, adminOnly, noCache, requirePermission } from '../middleware/auth.js';
@@ -17,20 +15,17 @@ import { logAudit } from '../middleware/audit.js';
 import { adminLimiter } from '../middleware/rateLimit.js';
 import { validateBody } from '../middleware/validate.js';
 import { promoBulkSchema, orderStatusUpdateSchema, orderBulkStatusUpdateSchema } from '../schemas/zodSchemas.js';
-import { checkerUpload, sliderUpload } from '../middleware/upload.js';
-import {
-  getCheckerStats,
-  uploadCheckersFromExcel,
-  syncCheckerPackageAvailability,
-} from '../services/checkerService.js';
+import { sliderUpload } from '../middleware/upload.js';
 import { reorderCategoryPackages } from '../utils/packageSort.js';
+import { pauseUpdate, resumeUpdate } from '../utils/packageAvailability.js';
 import { fulfillOrder } from '../services/orderService.js';
-import { purgeAllOrders, purgeAllCheckers } from '../services/orderPurgeService.js';
+import { syncOrderProviderStatus, maybeSendVerificationEmail } from '../services/orderProviderStatusService.js';
+import { purgeAllOrders } from '../services/orderPurgeService.js';
 import {
   serializeApiProviderSettingsForAdmin,
   updateApiProviderSettings,
   testProviderConnection,
-  fetchDatamaxBalance,
+  fetchTopDealsGhBalance,
   fetchSmartDataHubBalance,
   getQueuedOrders,
 } from '../services/apiProviderService.js';
@@ -54,6 +49,8 @@ const emitPackageUpdate = (req, data) => {
   req.app.get('io')?.emit('package:updated', data);
 };
 
+const PAID_ORDER_FILTER = { paymentStatus: 'paid' };
+
 // Analytics
 router.get(
   '/analytics',
@@ -61,17 +58,16 @@ router.get(
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const [totalOrders, ordersToday, revenue, pending, failed, delivered, customers] = await Promise.all([
-      Order.countDocuments(),
-      Order.countDocuments({ createdAt: { $gte: today } }),
-      Order.aggregate([{ $match: { paymentStatus: 'paid' } }, { $group: { _id: null, total: { $sum: '$totalAmount' } } }]),
-      Order.countDocuments({ deliveryStatus: 'pending' }),
-      Order.countDocuments({ deliveryStatus: 'failed' }),
-      Order.countDocuments({ deliveryStatus: 'delivered' }),
-      User.countDocuments({ role: 'user' }),
-    ]);
-
-    const checkerStats = await getCheckerStats();
+    const [totalOrders, ordersToday, revenue, pending, failed, delivered, customers] =
+      await Promise.all([
+        Order.countDocuments(PAID_ORDER_FILTER),
+        Order.countDocuments({ ...PAID_ORDER_FILTER, createdAt: { $gte: today } }),
+        Order.aggregate([{ $match: PAID_ORDER_FILTER }, { $group: { _id: null, total: { $sum: '$totalAmount' } } }]),
+        Order.countDocuments({ ...PAID_ORDER_FILTER, deliveryStatus: 'pending' }),
+        Order.countDocuments({ ...PAID_ORDER_FILTER, deliveryStatus: 'failed' }),
+        Order.countDocuments({ ...PAID_ORDER_FILTER, deliveryStatus: 'delivered' }),
+        User.countDocuments({ role: 'user' }),
+      ]);
 
     res.json({
       success: true,
@@ -83,7 +79,6 @@ router.get(
         failedOrders: failed,
         deliveredOrders: delivered,
         customers,
-        checkers: checkerStats,
       },
     });
   })
@@ -110,7 +105,12 @@ router.put('/packages/:id', asyncHandler(async (req, res) => {
   const existing = await Package.findById(req.params.id);
   if (!existing) throw new AppError('Package not found.', 404);
 
-  const { displayOrder: _displayOrder, ...updates } = req.body;
+  const {
+    displayOrder: _displayOrder,
+    isAvailable: _isAvailable,
+    adminPaused: _adminPaused,
+    ...updates
+  } = req.body;
   const pkg = await Package.findByIdAndUpdate(req.params.id, updates, { new: true, runValidators: true });
 
   const sizeOrPriceChanged =
@@ -128,6 +128,7 @@ router.put('/packages/:id', asyncHandler(async (req, res) => {
   const refreshed = await Package.findById(pkg._id);
   emitPackageUpdate(req, { packageId: pkg._id.toString(), action: 'updated', isAvailable: refreshed.isAvailable });
   req.app.get('io')?.emit('packages:refresh');
+  await logAudit({ user: req.user, action: 'UPDATE', resource: 'Package', resourceId: pkg._id, details: updates, req });
   res.json({ success: true, package: refreshed });
 }));
 
@@ -142,13 +143,24 @@ router.delete('/packages/:id', asyncHandler(async (req, res) => {
 }));
 
 router.patch('/packages/:id/availability', asyncHandler(async (req, res) => {
-  const pkg = await Package.findByIdAndUpdate(
-    req.params.id,
-    { isAvailable: req.body.isAvailable },
-    { new: true }
-  );
+  if (typeof req.body.isAvailable !== 'boolean') {
+    throw new AppError('isAvailable must be true or false.', 400);
+  }
+
+  const update = req.body.isAvailable ? resumeUpdate : pauseUpdate;
+  const pkg = await Package.findByIdAndUpdate(req.params.id, update, { new: true });
   if (!pkg) throw new AppError('Package not found.', 404);
-  emitPackageUpdate(req, { packageId: pkg._id.toString(), isAvailable: pkg.isAvailable });
+
+  await logAudit({
+    user: req.user,
+    action: 'UPDATE',
+    resource: 'Package',
+    resourceId: pkg._id,
+    details: { adminPaused: pkg.adminPaused, isAvailable: pkg.isAvailable },
+    req,
+  });
+
+  emitPackageUpdate(req, { packageId: pkg._id.toString(), isAvailable: pkg.isAvailable, adminPaused: pkg.adminPaused });
   req.app.get('io')?.emit('packages:refresh');
   res.json({ success: true, package: pkg });
 }));
@@ -159,10 +171,8 @@ router.patch('/packages/category/:category/availability', asyncHandler(async (re
     throw new AppError('isAvailable must be true or false.', 400);
   }
 
-  const result = await Package.updateMany(
-    { category },
-    { $set: { isAvailable: req.body.isAvailable } }
-  );
+  const update = req.body.isAvailable ? resumeUpdate : pauseUpdate;
+  const result = await Package.updateMany({ category }, { $set: update });
 
   if (result.matchedCount === 0) {
     throw new AppError('No packages found for this category.', 404);
@@ -183,7 +193,7 @@ router.patch('/packages/category/:category/availability', asyncHandler(async (re
 // Orders
 router.get('/orders', asyncHandler(async (req, res) => {
   const { status, search, category, network, page = 1, limit = 100 } = req.query;
-  const filter = {};
+  const filter = { ...PAID_ORDER_FILTER };
   if (status) filter.deliveryStatus = status;
   if (search) {
     filter.$or = [
@@ -240,10 +250,20 @@ router.patch('/orders/bulk-status', validateBody(orderBulkStatusUpdateSchema), a
   if (deliveryStatus) updates.deliveryStatus = deliveryStatus;
   if (paymentStatus) updates.paymentStatus = paymentStatus;
 
+  const before = deliveryStatus === 'verification'
+    ? await Order.find({ _id: { $in: orderIds } }).select('deliveryStatus')
+    : [];
+  const beforeMap = new Map(before.map((o) => [String(o._id), o.deliveryStatus]));
+
   const result = await Order.updateMany({ _id: { $in: orderIds } }, updates);
-  const orders = await Order.find({ _id: { $in: orderIds } }).select('reference deliveryStatus paymentStatus');
+  const orders = await Order.find({ _id: { $in: orderIds } });
 
   for (const order of orders) {
+    if (deliveryStatus === 'verification') {
+      const previous = beforeMap.get(String(order._id));
+      const emailed = await maybeSendVerificationEmail(order, previous);
+      if (emailed) await order.save();
+    }
     req.app.get('io')?.emit('order:updated', {
       reference: order.reference,
       deliveryStatus: order.deliveryStatus,
@@ -268,8 +288,18 @@ router.patch('/orders/:id/status', validateBody(orderStatusUpdateSchema), asyncH
   if (deliveryStatus) updates.deliveryStatus = deliveryStatus;
   if (req.body.paymentStatus) updates.paymentStatus = req.body.paymentStatus;
 
+  const existing = await Order.findById(req.params.id);
+  if (!existing) throw new AppError('Order not found.', 404);
+  const previousDelivery = existing.deliveryStatus;
+
   const order = await Order.findByIdAndUpdate(req.params.id, updates, { new: true, runValidators: true });
   if (!order) throw new AppError('Order not found.', 404);
+
+  if (deliveryStatus === 'verification') {
+    const emailed = await maybeSendVerificationEmail(order, previousDelivery);
+    if (emailed) await order.save();
+  }
+
   req.app.get('io')?.emit('order:updated', {
     reference: order.reference,
     deliveryStatus: order.deliveryStatus,
@@ -288,103 +318,9 @@ router.post('/orders/:id/resubmit', asyncHandler(async (req, res) => {
   res.json({ success: true, message: 'Order resubmitted.' });
 }));
 
-// Checkers
-router.get('/checkers/stats', asyncHandler(async (_req, res) => {
-  const stats = await getCheckerStats();
-  res.json({ success: true, stats });
-}));
-
-router.get('/checkers', asyncHandler(async (req, res) => {
-  const { status, type, search, page = 1, limit = 50 } = req.query;
-  const filter = {};
-  if (status) filter.status = status;
-  if (type) filter.checkerType = type;
-  if (search) filter.serialNumber = { $regex: search, $options: 'i' };
-
-  const checkers = await Checker.find(filter)
-    .sort({ createdAt: -1 })
-    .skip((page - 1) * limit)
-    .limit(Number(limit));
-
-  const total = await Checker.countDocuments(filter);
-  res.json({ success: true, checkers, pagination: { page: Number(page), limit: Number(limit), total } });
-}));
-
-router.post('/checkers/upload', requirePermission('checkers'), checkerUpload.single('file'), asyncHandler(async (req, res) => {
-  if (!req.file) throw new AppError('Excel file required.', 400);
-
-  const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
-  const sheet = workbook.Sheets[workbook.SheetNames[0]];
-  const rows = xlsx.utils.sheet_to_json(sheet);
-
-  const report = await uploadCheckersFromExcel(rows);
-  await logAudit({ user: req.user, action: 'UPLOAD', resource: 'Checker', details: report, req });
-  req.app.get('io')?.emit('packages:refresh');
-  res.json({ success: true, report });
-}));
-
-router.post('/checkers', asyncHandler(async (req, res) => {
-  const checkerType = String(req.body.checkerType || '').trim().toUpperCase();
-  const serialNumber = String(req.body.serialNumber || '').trim();
-  const pin = String(req.body.pin || '').trim();
-  const year = String(req.body.year || new Date().getFullYear()).trim();
-
-  if (!checkerType || !serialNumber || !pin) {
-    throw new AppError('Checker type, serial number, and PIN are required.', 400);
-  }
-  if (!['BECE', 'WASSCE'].includes(checkerType)) {
-    throw new AppError('Checker type must be BECE or WASSCE.', 400);
-  }
-
-  const existing = await Checker.findOne({ serialNumber });
-  if (existing) {
-    throw new AppError('A checker with this serial number already exists.', 409);
-  }
-
-  const checker = await Checker.create({
-    checkerType,
-    serialNumber,
-    pin,
-    year,
-    status: 'unused',
-  });
-
-  await syncCheckerPackageAvailability();
-  await logAudit({ user: req.user, action: 'CREATE', resource: 'Checker', resourceId: checker._id, req });
-  req.app.get('io')?.emit('packages:refresh');
-  res.status(201).json({ success: true, checker });
-}));
-
-router.delete('/checkers/purge-all', asyncHandler(async (req, res) => {
-  if (req.body?.confirm !== 'DELETE_ALL_CHECKERS') {
-    throw new AppError('Send { "confirm": "DELETE_ALL_CHECKERS" } to purge all checker stock.', 400);
-  }
-
-  const result = await purgeAllCheckers();
-
-  await logAudit({
-    user: req.user,
-    action: 'DELETE',
-    resource: 'Checker',
-    details: { purgeAll: true, ...result },
-    req,
-  });
-
-  req.app.get('io')?.emit('packages:refresh');
-  res.json({ success: true, message: 'All checker stock cleared.', ...result });
-}));
-
-router.delete('/checkers/:id', asyncHandler(async (req, res) => {
-  const checker = await Checker.findById(req.params.id);
-  if (!checker) throw new AppError('Checker not found.', 404);
-  if (checker.status === 'used') {
-    throw new AppError('Cannot delete a checker that has already been used.', 400);
-  }
-
-  await Checker.findByIdAndDelete(req.params.id);
-  await syncCheckerPackageAvailability();
-  req.app.get('io')?.emit('packages:refresh');
-  res.json({ success: true });
+router.post('/orders/:id/sync-provider', asyncHandler(async (req, res) => {
+  const result = await syncOrderProviderStatus(req.params.id, req.app.get('io'));
+  res.json({ success: true, ...result });
 }));
 
 // Promos
@@ -532,30 +468,33 @@ router.patch('/sliders/reorder', asyncHandler(async (req, res) => {
 
 // Settings
 router.get('/settings', asyncHandler(async (_req, res) => {
-  let settings = await SiteSettings.findOne();
-  if (!settings) settings = await SiteSettings.create({});
+  const settings = await getSiteSettings();
   res.json({ success: true, settings });
 }));
 
 router.put('/settings', asyncHandler(async (req, res) => {
-  const updates = { ...req.body };
-  if (updates.providerApiKey) {
-    updates.providerApiKeyEncrypted = encrypt(updates.providerApiKey);
-    delete updates.providerApiKey;
+  const allowed = [
+    'siteName', 'tagline', 'logo', 'favicon', 'contactEmail', 'contactPhone', 'whatsapp',
+    'address', 'socialLinks', 'maintenanceMode', 'maintenanceMessage', 'announcementBanner',
+    'paystackPublicKey', 'stats',
+  ];
+  const updates = {};
+  for (const key of allowed) {
+    if (req.body[key] !== undefined) updates[key] = req.body[key];
+  }
+  if (req.body.providerApiKey) {
+    updates.providerApiKeyEncrypted = encrypt(req.body.providerApiKey);
   }
 
-  let settings = await SiteSettings.findOneAndUpdate({}, updates, { new: true, upsert: true });
+  const settings = await setSiteSettingsFields(updates);
+  await logAudit({ user: req.user, action: 'UPDATE', resource: 'SiteSettings', req });
   req.app.get('io')?.emit('settings:updated');
   res.json({ success: true, settings });
 }));
 
 router.patch('/settings/promo-checkout', requirePermission('promo_checkout'), asyncHandler(async (req, res) => {
   const enabled = Boolean(req.body.enabled);
-  let settings = await SiteSettings.findOneAndUpdate(
-    {},
-    { promoCheckoutEnabled: enabled },
-    { new: true, upsert: true }
-  );
+  const settings = await setSiteSettingsFields({ promoCheckoutEnabled: enabled });
   await logAudit({ user: req.user, action: 'UPDATE', resource: 'SiteSettings', details: { promoCheckoutEnabled: enabled }, req });
   req.app.get('io')?.emit('settings:updated');
   res.json({ success: true, promoCheckoutEnabled: settings.promoCheckoutEnabled });
@@ -584,8 +523,14 @@ router.post('/api-providers/test/:providerId', asyncHandler(async (req, res) => 
   res.json({ success: result.success, ...result });
 }));
 
+router.get('/api-providers/topdealsgh/balance', asyncHandler(async (req, res) => {
+  const result = await fetchTopDealsGhBalance();
+  const autoRetry = await retryQueuedProviderOrders(req.app.get('io'));
+  res.json({ success: true, ...result, autoRetry });
+}));
+
 router.get('/api-providers/datamax/balance', asyncHandler(async (req, res) => {
-  const result = await fetchDatamaxBalance();
+  const result = await fetchTopDealsGhBalance();
   const autoRetry = await retryQueuedProviderOrders(req.app.get('io'));
   res.json({ success: true, ...result, autoRetry });
 }));

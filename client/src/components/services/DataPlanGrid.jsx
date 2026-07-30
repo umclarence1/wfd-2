@@ -27,15 +27,15 @@ function DataPlanCard({ plan, isAvailable, priority = false }) {
   if (plan.isWebDev) {
     return (
       <Link to={plan.link} className="interactive-card group flex flex-col">
-        <div className="relative aspect-square overflow-hidden bg-gradient-to-br from-blue-600 to-blue-800 transition-all duration-500 group-hover:from-blue-500 group-hover:to-blue-700">
+        <div className="relative aspect-square overflow-hidden bg-gradient-to-br from-orange-500 via-rose-500 to-fuchsia-600 transition-all duration-500 group-hover:from-orange-400 group-hover:via-rose-400 group-hover:to-fuchsia-500">
           <div className="flex h-full flex-col items-center justify-center p-5 text-center">
-            <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white/15 text-white ring-1 ring-white/25 transition-transform duration-300 group-hover:scale-110 sm:h-16 sm:w-16">
+            <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white/20 text-white ring-1 ring-white/30 shadow-lg transition-transform duration-300 group-hover:scale-110 sm:h-16 sm:w-16">
               <Globe className="h-7 w-7 sm:h-8 sm:w-8" />
             </span>
-            <p className="mt-4 text-xs font-semibold uppercase tracking-wide text-blue-100">Web Design</p>
+            <p className="mt-4 text-xs font-semibold uppercase tracking-wide text-white/95">Web Design</p>
           </div>
         </div>
-        <p className="border-t border-gray-100 px-3 py-3 text-center text-xs font-bold leading-snug text-gray-900 transition-colors duration-300 group-hover:bg-blue-50 group-hover:text-blue-700 sm:py-4 sm:text-sm">
+        <p className="border-t border-gray-100 px-3 py-3 text-center text-xs font-bold leading-snug text-gray-900 transition-colors duration-300 group-hover:bg-rose-50 group-hover:text-rose-700 sm:py-4 sm:text-sm">
           {plan.name}
         </p>
       </Link>
@@ -58,7 +58,7 @@ function DataPlanCard({ plan, isAvailable, priority = false }) {
   );
 
   const label = (
-    <p className="border-t border-gray-100 py-3 text-center text-sm font-bold text-gray-900 transition-colors duration-300 group-hover:bg-blue-50 group-hover:text-blue-700 sm:py-4 sm:text-base">
+    <p className="border-t border-gray-100 py-3 text-center text-sm font-bold text-gray-900 transition-colors duration-300 group-hover:bg-emerald-50 group-hover:text-emerald-700 sm:py-4 sm:text-base">
       {plan.name}
     </p>
   );

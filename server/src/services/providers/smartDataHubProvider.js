@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { formatDatamaxCustomerNumber, parseDatamaxVolume } from './datamaxProvider.js';
+import { formatGhanaLocalPhone, parseBundleVolume } from './providerPhone.js';
 import {
   API_V1_PREFIX,
   buildSmartDataHubHeaders,
@@ -60,7 +60,7 @@ export const mapSmartDataHubNetwork = (category) =>
   SMART_DATA_HUB_NETWORK_CODES[category] || category.toLowerCase();
 
 export const parseSmartDataHubDataSize = (dataAmount) => {
-  const volume = parseDatamaxVolume(dataAmount);
+  const volume = parseBundleVolume(dataAmount);
   const numeric = Number(volume);
   return Number.isFinite(numeric) ? numeric : 1;
 };
@@ -147,7 +147,7 @@ export const submitSmartDataHubDataBundle = async ({ apiUrl, apiKey, apiSecret }
     order_number: order.reference,
     orders: [
       {
-        _beneficiary_number: formatDatamaxCustomerNumber(order.phone),
+        _beneficiary_number: formatGhanaLocalPhone(order.phone),
         network: mapSmartDataHubNetwork(pkg.category),
         _data_size: parseSmartDataHubDataSize(pkg.dataAmount || pkg.name),
       },
@@ -203,5 +203,5 @@ export const submitSmartDataHubAFA = async (_creds, order) => ({
   success: false,
   reference: order.reference,
   message:
-    'Smart Data Hub API does not support AFA registration. Route MTN AFA through Datamax in API Providers.',
+    'Smart Data Hub API does not support AFA registration. Route MTN AFA through TopDealsGH in API Providers.',
 });

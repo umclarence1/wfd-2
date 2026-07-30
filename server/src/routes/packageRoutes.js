@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import Package from '../models/Package.js';
-import SiteSettings from '../models/SiteSettings.js';
+import { getSiteSettings } from '../services/siteSettingsService.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import { noCache } from '../middleware/auth.js';
 import { promoLimiter } from '../middleware/rateLimit.js';
@@ -8,7 +8,8 @@ import { validateBody } from '../middleware/validate.js';
 import { packageBreakdownSchema } from '../schemas/zodSchemas.js';
 import { getPaymentBreakdown } from '../services/orderService.js';
 import { validatePromoCode } from '../services/promoService.js';
-import { checkStock } from '../services/checkerService.js';
+import { resolveCheckerInStock, getCheckerStockMap } from '../services/checkerService.js';
+import { withPublicAvailability } from '../utils/packageAvailability.js';
 
 const router = Router();
 
@@ -23,15 +24,18 @@ router.get(
 
     const packages = await Package.find(filter).sort({ displayOrder: 1, price: 1 }).lean();
 
-    const withStock = await Promise.all(
-      packages.map(async (pkg) => {
-        if (pkg.serviceType === 'result_checker') {
-          const inStock = await checkStock(pkg.checkerType);
-          return { ...pkg, inStock, isAvailable: pkg.isAvailable && inStock };
-        }
-        return { ...pkg, inStock: true };
-      })
-    );
+    const hasChecker = packages.some((pkg) => pkg.serviceType === 'result_checker');
+    // One cached TopDealsGH /checker call (60s TTL) — mirrors out-of-stock on the storefront.
+    const stockMap = hasChecker ? await getCheckerStockMap() : null;
+
+    const withStock = packages.map((pkg) => {
+      if (pkg.serviceType === 'result_checker') {
+        const type = String(pkg.checkerType || '').toUpperCase();
+        const inStock = pkg.adminPaused ? false : stockMap?.[type] === true;
+        return withPublicAvailability(pkg, { inStock });
+      }
+      return withPublicAvailability(pkg);
+    });
 
     res.json({ success: true, packages: withStock });
   })
@@ -56,12 +60,11 @@ router.get(
     }
 
     if (pkg.serviceType === 'result_checker') {
-      const inStock = await checkStock(pkg.checkerType);
-      pkg.inStock = inStock;
-      pkg.isAvailable = pkg.isAvailable && inStock;
+      const inStock = await resolveCheckerInStock(pkg.checkerType);
+      return res.json({ success: true, package: withPublicAvailability(pkg, { inStock }) });
     }
 
-    res.json({ success: true, package: pkg });
+    res.json({ success: true, package: withPublicAvailability(pkg) });
   })
 );
 
@@ -72,12 +75,12 @@ router.post(
   validateBody(packageBreakdownSchema),
   asyncHandler(async (req, res) => {
     const pkg = await Package.findById(req.params.id);
-    if (!pkg || !pkg.isActive || !pkg.isAvailable) {
+    if (!pkg || !pkg.isActive || pkg.adminPaused) {
       return res.status(400).json({ success: false, message: 'Package unavailable.' });
     }
 
     if (pkg.serviceType === 'result_checker') {
-      const inStock = await checkStock(pkg.checkerType);
+      const inStock = await resolveCheckerInStock(pkg.checkerType);
       if (!inStock) {
         return res.status(400).json({
           success: false,
@@ -85,11 +88,13 @@ router.post(
           code: 'OUT_OF_STOCK',
         });
       }
+    } else if (!pkg.isAvailable) {
+      return res.status(400).json({ success: false, message: 'Package unavailable.' });
     }
 
     let promoResult = null;
     if (req.body.promoCode) {
-      const settings = await SiteSettings.findOne().lean();
+      const settings = await getSiteSettings(true);
       if (!settings?.promoCheckoutEnabled) {
         return res.status(400).json({ success: false, message: 'Promo codes are not available at this time.' });
       }

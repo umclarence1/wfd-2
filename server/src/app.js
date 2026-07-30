@@ -15,14 +15,24 @@ import orderRoutes from './routes/orderRoutes.js';
 import paymentRoutes from './routes/paymentRoutes.js';
 import publicRoutes from './routes/publicRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
-import SiteSettings from './models/SiteSettings.js';
+import cronRoutes from './routes/cronRoutes.js';
+import topdealsWebhookRoutes from './routes/topdealsWebhookRoutes.js';
+import { getSiteSettings } from './services/siteSettingsService.js';
 
 const noopIo = { emit: () => {}, on: () => {} };
 
 const maintenanceCheck = async (req, res, next) => {
-  if (req.path === '/api/health' || req.path === '/api/csrf-token') return next();
+  if (
+    req.path === '/api/health'
+    || req.path === '/api/csrf-token'
+    || req.path.startsWith('/api/cron')
+    || req.path.startsWith('/api/webhooks')
+    || req.path === '/api/payments/webhook'
+  ) {
+    return next();
+  }
   try {
-    const settings = await SiteSettings.findOne();
+    const settings = await getSiteSettings(true);
     if (settings?.maintenanceMode) {
       return res.status(503).json({
         success: false,
@@ -74,8 +84,12 @@ export const createApp = (io = noopIo) => {
   app.use(express.json({
     limit: '10mb',
     verify: (req, _res, buf) => {
-      if (req.originalUrl === '/api/payments/webhook') {
-        req.rawBody = buf;
+      const path = String(req.originalUrl || req.url || '');
+      if (
+        path.includes('/api/payments/webhook')
+        || path.includes('/api/webhooks/topdeals')
+      ) {
+        req.rawBody = Buffer.from(buf);
       }
     },
   }));
@@ -90,7 +104,6 @@ export const createApp = (io = noopIo) => {
     next();
   });
 
-  app.use('/api', apiLimiter);
   app.use(maintenanceCheck);
 
   app.get('/api/health', async (_req, res) => {
@@ -111,6 +124,10 @@ export const createApp = (io = noopIo) => {
 
   app.get('/api/csrf-token', getCsrfToken);
 
+  // Webhooks + cron before the general API limiter so status pushes are never throttle-blocked.
+  app.use('/api/webhooks', topdealsWebhookRoutes);
+  app.use('/api/cron', cronRoutes);
+  app.use('/api', apiLimiter);
   app.use('/api/auth', authRoutes);
   app.use('/api/packages', packageRoutes);
   app.use('/api/orders', orderRoutes);

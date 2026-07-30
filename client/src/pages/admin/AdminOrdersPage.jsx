@@ -1,20 +1,33 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CheckSquare } from 'lucide-react';
+import { CheckSquare, Download, Search } from 'lucide-react';
 import api from '../../api/client';
 import { useToast } from '../../context/ToastContext';
 import { formatCurrency, formatDate } from '../../utils/validation';
 import AdminPageHeader from '../../components/admin/AdminPageHeader';
+import OrderProviderStatusModal, {
+  OrderProviderStatusButton,
+} from '../../components/admin/OrderProviderStatusModal';
 
-const deliveryStatuses = ['pending', 'processing', 'delivered', 'failed', 'refunded'];
+const deliveryStatuses = [
+  'pending',
+  'processing',
+  'verification',
+  'delivered',
+  'failed',
+  'refunded',
+  'cancelled',
+];
 
 const statusTabs = [
   { key: '', label: 'ALL' },
   { key: 'pending', label: 'PENDING' },
   { key: 'processing', label: 'PROCESSING' },
+  { key: 'verification', label: 'VERIFICATION' },
   { key: 'delivered', label: 'DELIVERED' },
   { key: 'failed', label: 'FAILED' },
-  { key: 'refunded', label: 'CANCELLED' },
+  { key: 'refunded', label: 'REFUNDED' },
+  { key: 'cancelled', label: 'CANCELLED' },
 ];
 
 const networkFilters = [
@@ -26,23 +39,57 @@ const networkFilters = [
 
 const deliveryBadgeClass = {
   pending: 'bg-amber-100 text-amber-800',
-  processing: 'bg-blue-100 text-blue-800',
+  processing: 'bg-sky-100 text-sky-800',
+  verification: 'bg-violet-100 text-violet-800',
   delivered: 'bg-emerald-100 text-emerald-800',
   failed: 'bg-red-100 text-red-800',
   refunded: 'bg-slate-200 text-slate-700',
-};
-
-const paymentBadgeClass = {
-  pending: 'bg-amber-50 text-amber-700',
-  paid: 'bg-emerald-50 text-emerald-700',
-  failed: 'bg-red-50 text-red-700',
-  refunded: 'bg-slate-100 text-slate-600',
+  cancelled: 'bg-gray-200 text-gray-700',
 };
 
 const formatStatusLabel = (value) => {
-  if (value === 'refunded') return 'Cancelled';
   if (!value) return '';
   return value.charAt(0).toUpperCase() + value.slice(1);
+};
+
+const formatBundle = (order) => {
+  const name = order.packageName || order.package?.name || '—';
+  const category = order.category || order.package?.category;
+  const amount = order.package?.dataAmount;
+  if (category && amount) return `${category} · ${amount}`;
+  if (category && name.toLowerCase().includes(String(category).toLowerCase())) return name;
+  if (category) return `${category} · ${name}`;
+  return name;
+};
+
+const escapeCsv = (value) => {
+  const text = String(value ?? '');
+  if (/[",\n]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
+  return text;
+};
+
+const downloadOrdersCsv = (orders, networkKey) => {
+  const header = ['Order ID', 'Customer', 'Phone', 'Bundle', 'Amount', 'Payment', 'Status', 'Date'];
+  const rows = orders.map((order) => [
+    order.reference,
+    order.email,
+    order.phone,
+    formatBundle(order),
+    order.totalAmount,
+    order.paymentStatus,
+    order.deliveryStatus,
+    order.createdAt ? new Date(order.createdAt).toISOString() : '',
+  ]);
+
+  const csv = [header, ...rows].map((row) => row.map(escapeCsv).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  const suffix = networkKey || 'all';
+  link.href = url;
+  link.download = `orders-${suffix}-${new Date().toISOString().slice(0, 10)}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
 };
 
 export default function AdminOrdersPage() {
@@ -51,9 +98,11 @@ export default function AdminOrdersPage() {
   const [status, setStatus] = useState('');
   const [network, setNetwork] = useState('');
   const [search, setSearch] = useState('');
+  const [searchDraft, setSearchDraft] = useState('');
   const [updatingId, setUpdatingId] = useState(null);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [bulkStatus, setBulkStatus] = useState('delivered');
+  const [providerOrder, setProviderOrder] = useState(null);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['admin-orders', status, network, search],
@@ -68,6 +117,9 @@ export default function AdminOrdersPage() {
           },
         })
         .then((r) => r.data),
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+    refetchInterval: import.meta.env.PROD ? 60_000 : false,
   });
 
   const orders = data?.orders || [];
@@ -103,6 +155,8 @@ export default function AdminOrdersPage() {
 
   const handleDeliveryChange = (orderId, deliveryStatus) => {
     if (!deliveryStatus) return;
+    const current = orders.find((o) => o._id === orderId)?.deliveryStatus;
+    if (current === deliveryStatus) return;
     setUpdatingId(orderId);
     updateOrder.mutate({ id: orderId, deliveryStatus });
   };
@@ -159,39 +213,73 @@ export default function AdminOrdersPage() {
     purgeOrders.mutate();
   };
 
+  const handleSearch = (e) => {
+    e.preventDefault();
+    setSearch(searchDraft.trim());
+  };
+
+  const handleExport = () => {
+    if (!orders.length) {
+      toast('No orders to export for the current filters.', 'error');
+      return;
+    }
+    downloadOrdersCsv(orders, network || 'all');
+    toast(`Exported ${orders.length} order${orders.length === 1 ? '' : 's'}.`, 'success');
+  };
+
   return (
     <div className="space-y-6">
+      <form onSubmit={handleSearch} className="flex flex-col gap-3 sm:flex-row">
+        <div className="relative flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+          <input
+            className="admin-search-input"
+            placeholder="Search phone numbers, order IDs, emails..."
+            value={searchDraft}
+            onChange={(e) => setSearchDraft(e.target.value)}
+          />
+        </div>
+        <button type="submit" className="admin-gold-btn shrink-0">
+          <Search className="h-4 w-4" />
+          Search
+        </button>
+      </form>
+
       <div className="flex flex-wrap items-end justify-between gap-4">
         <AdminPageHeader
           title="All Orders"
-          subtitle={`${total} order${total === 1 ? '' : 's'} from your store.`}
+          subtitle={`Every store order — ${total} total`}
         />
-        {orders.length > 0 && (
-          <button
-            type="button"
-            onClick={handlePurgeAll}
-            disabled={purgeOrders.isPending}
-            className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-bold text-red-700 hover:bg-red-100 disabled:opacity-50"
-          >
-            {purgeOrders.isPending ? 'Clearing...' : 'Clear all orders'}
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={handleExport} className="admin-gold-btn !py-2">
+            <Download className="h-4 w-4" />
+            Export CSV
           </button>
-        )}
+          {orders.length > 0 && (
+            <button
+              type="button"
+              onClick={handlePurgeAll}
+              disabled={purgeOrders.isPending}
+              className="rounded-lg border border-red-400/40 bg-red-500/10 px-4 py-2 text-sm font-bold text-red-300 hover:bg-red-500/20 disabled:opacity-50"
+            >
+              {purgeOrders.isPending ? 'Clearing...' : 'Clear all orders'}
+            </button>
+          )}
+        </div>
       </div>
 
-      <div className="admin-panel space-y-4">
+      <div className="space-y-4">
         <div>
-          <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">Filter by network</p>
+          <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-400">
+            Filter / export by network
+          </p>
           <div className="flex flex-wrap gap-2">
             {networkFilters.map((item) => (
               <button
                 key={item.key || 'all'}
                 type="button"
                 onClick={() => setNetwork(item.key)}
-                className={`rounded-lg border px-3 py-2 text-sm font-semibold transition ${
-                  network === item.key
-                    ? 'border-blue-600 bg-blue-600 text-white'
-                    : 'border-slate-200 bg-white text-slate-700 hover:border-blue-300 hover:bg-blue-50'
-                }`}
+                className={`admin-filter-pill ${network === item.key ? 'admin-filter-pill-active' : ''}`}
               >
                 {item.label}
               </button>
@@ -199,78 +287,70 @@ export default function AdminOrdersPage() {
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-2 border-t border-slate-100 pt-4">
-          {statusTabs.map((tab) => (
-            <button
-              key={tab.key || 'all'}
-              type="button"
-              onClick={() => setStatus(tab.key)}
-              className={`rounded-md px-3 py-1.5 text-xs font-bold tracking-wide transition ${
-                status === tab.key
-                  ? 'bg-slate-900 text-white'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
+        <div>
+          <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-400">Status</p>
+          <div className="flex flex-wrap gap-2">
+            {statusTabs.map((tab) => (
+              <button
+                key={tab.key || 'all'}
+                type="button"
+                onClick={() => setStatus(tab.key)}
+                className={`admin-status-pill ${status === tab.key ? 'admin-status-pill-active' : ''}`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
         </div>
-
-        <input
-          className="input-field w-full max-w-md"
-          placeholder="Search order ID, email, phone, bundle..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
       </div>
 
       {selectedIds.size > 0 && (
-        <div className="sticky top-0 z-20 flex flex-wrap items-center gap-3 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 shadow-sm">
-          <span className="flex items-center gap-2 text-sm font-bold text-blue-900">
-            <CheckSquare className="h-4 w-4" />
-            {selectedIds.size} selected
+        <div className="sticky top-0 z-20 flex flex-wrap items-center gap-3 rounded-xl border border-white/10 bg-[var(--admin-navy-2)] px-4 py-3 shadow-lg">
+          <span className="flex items-center gap-2 text-sm font-bold text-white">
+            <CheckSquare className="h-4 w-4 text-[var(--admin-gold)]" />
+            {selectedIds.size} order{selectedIds.size === 1 ? '' : 's'} selected
           </span>
           <select
-            className="input-field !w-auto !py-2 !text-sm"
+            className="rounded-lg border border-white/15 bg-[#0f172a] px-3 py-2 text-sm text-white"
             value={bulkStatus}
             onChange={(e) => setBulkStatus(e.target.value)}
           >
             {deliveryStatuses.map((s) => (
               <option key={s} value={s}>
-                Mark as {formatStatusLabel(s)}
+                {formatStatusLabel(s)}
               </option>
             ))}
           </select>
           <button
             type="button"
-            className="btn-primary !py-2 text-sm"
+            className="admin-gold-btn !py-2 text-sm"
             disabled={bulkUpdateOrders.isPending}
             onClick={applyBulkUpdate}
           >
-            {bulkUpdateOrders.isPending ? 'Updating...' : 'Apply to selected'}
+            {bulkUpdateOrders.isPending ? 'Updating...' : `Apply to ${selectedIds.size}`}
           </button>
           <button
             type="button"
-            className="text-sm font-semibold text-slate-600 hover:text-slate-900"
+            className="text-sm font-semibold text-slate-400 hover:text-white"
             onClick={() => setSelectedIds(new Set())}
           >
-            Clear selection
+            Clear
           </button>
         </div>
       )}
 
-      {isLoading && <div className="admin-panel h-48 animate-pulse bg-slate-100" />}
-      {isError && <div className="admin-panel text-sm text-red-600">Could not load orders.</div>}
+      {isLoading && <div className="admin-panel h-48 animate-pulse bg-white/5" />}
+      {isError && <div className="admin-panel text-sm text-red-300">Could not load orders.</div>}
 
       {!isLoading && !isError && (
-        <div className="admin-panel overflow-x-auto !p-0 sm:!p-0">
-          <table className="admin-table min-w-[1000px]">
+        <div className="admin-orders-table-wrap overflow-x-auto">
+          <table className="admin-table min-w-[980px]">
             <thead>
               <tr>
-                <th className="w-10">
+                <th className="w-10 pl-4">
                   <input
                     type="checkbox"
-                    className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                    className="h-4 w-4 rounded border-slate-300 text-amber-500 focus:ring-amber-400"
                     checked={allVisibleSelected}
                     ref={(el) => {
                       if (el) el.indeterminate = someVisibleSelected && !allVisibleSelected;
@@ -284,9 +364,9 @@ export default function AdminOrdersPage() {
                 <th>Phone</th>
                 <th>Bundle</th>
                 <th>Amount</th>
-                <th>Payment</th>
-                <th>Status</th>
+                <th className="min-w-[200px]">Status</th>
                 <th>Date</th>
+                <th className="pr-4">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -302,35 +382,35 @@ export default function AdminOrdersPage() {
                   const isSelected = selectedIds.has(order._id);
 
                   return (
-                    <tr key={order._id} className={isSelected ? 'bg-blue-50/60' : undefined}>
-                      <td>
+                    <tr key={order._id} className={isSelected ? '[&>td]:!bg-[#ebe4d4]' : undefined}>
+                      <td className="pl-4">
                         <input
                           type="checkbox"
-                          className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                          className="h-4 w-4 rounded border-slate-300 text-amber-500 focus:ring-amber-400"
                           checked={isSelected}
                           onChange={() => toggleSelect(order._id)}
                           aria-label={`Select order ${order.reference}`}
                         />
                       </td>
-                      <td className="whitespace-nowrap font-mono text-xs font-semibold text-slate-800">
+                      <td className="whitespace-nowrap font-mono text-xs font-semibold text-slate-900">
                         {order.reference}
                       </td>
-                      <td className="max-w-[200px] break-all text-sm text-slate-800">{order.email}</td>
-                      <td className="whitespace-nowrap text-sm text-slate-800">{order.phone}</td>
-                      <td className="min-w-[140px] text-sm font-medium text-slate-900">
-                        {order.packageName || order.package?.name}
+                      <td className="max-w-[220px]">
+                        <p className="truncate text-sm font-medium text-slate-900">{order.email}</p>
+                        {order.paymentStatus !== 'paid' && (
+                          <p className="mt-0.5 text-xs font-semibold uppercase text-slate-500">
+                            Payment: {formatStatusLabel(order.paymentStatus)}
+                          </p>
+                        )}
                       </td>
-                      <td className="whitespace-nowrap font-semibold text-slate-900">
+                      <td className="whitespace-nowrap text-sm font-medium text-slate-900">{order.phone}</td>
+                      <td className="min-w-[140px] text-sm font-semibold text-slate-900">
+                        {formatBundle(order)}
+                      </td>
+                      <td className="whitespace-nowrap font-bold text-slate-900">
                         {formatCurrency(order.totalAmount)}
                       </td>
-                      <td>
-                        <span
-                          className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${paymentBadgeClass[order.paymentStatus] || paymentBadgeClass.pending}`}
-                        >
-                          {formatStatusLabel(order.paymentStatus)}
-                        </span>
-                      </td>
-                      <td className="min-w-[180px]">
+                      <td className="min-w-[200px]">
                         <div className="flex flex-col gap-2">
                           <span
                             className={`inline-flex w-fit rounded-full px-2.5 py-1 text-xs font-bold ${deliveryBadgeClass[order.deliveryStatus] || deliveryBadgeClass.pending}`}
@@ -339,22 +419,22 @@ export default function AdminOrdersPage() {
                           </span>
                           <select
                             className="input-field !py-1.5 !text-xs"
-                            value=""
+                            value={order.deliveryStatus || 'pending'}
                             disabled={isUpdating}
                             onChange={(e) => handleDeliveryChange(order._id, e.target.value)}
                           >
-                            <option value="" disabled>
-                              {isUpdating ? 'Saving...' : 'Update status'}
-                            </option>
                             {deliveryStatuses.map((s) => (
                               <option key={s} value={s}>
-                                Set {formatStatusLabel(s)}
+                                {formatStatusLabel(s)}
                               </option>
                             ))}
                           </select>
                         </div>
                       </td>
                       <td className="whitespace-nowrap text-sm text-slate-600">{formatDate(order.createdAt)}</td>
+                      <td className="pr-4">
+                        <OrderProviderStatusButton onClick={() => setProviderOrder(order)} />
+                      </td>
                     </tr>
                   );
                 })
@@ -363,6 +443,13 @@ export default function AdminOrdersPage() {
           </table>
         </div>
       )}
+
+      <OrderProviderStatusModal
+        order={providerOrder}
+        open={Boolean(providerOrder)}
+        onClose={() => setProviderOrder(null)}
+        onSynced={() => queryClient.invalidateQueries({ queryKey: ['admin-orders'] })}
+      />
     </div>
   );
 }

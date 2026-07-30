@@ -1,14 +1,16 @@
 import { env } from '../config/env.js';
 import {
+  API_NETWORKS,
   DEFAULT_API_PROVIDER_SETTINGS,
   PROVIDER_DEFINITIONS,
   PROVIDER_IDS,
+  migrateProviderId,
 } from '../config/apiProviders.js';
-import SiteSettings from '../models/SiteSettings.js';
 import { decrypt, encrypt } from '../utils/encryption.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { markInsufficientBalanceIfNeeded } from '../utils/providerQueue.js';
 import { getQueuedProviderOrders } from './orderQueueService.js';
+import { getSiteSettings, setSiteSettingsFields } from './siteSettingsService.js';
 import {
   testSmartDataHubConnection,
   getSmartDataHubBalance,
@@ -16,35 +18,55 @@ import {
   submitSmartDataHubAFA,
 } from './providers/smartDataHubProvider.js';
 import {
-  testDatamaxConnection,
-  getDatamaxBalance,
-  getDatamaxOrderStatus,
-  submitDatamaxDataBundle,
-  submitDatamaxAFA,
-} from './providers/datamaxProvider.js';
+  testTopDealsGhConnection,
+  getTopDealsGhBalance,
+  submitTopDealsGhDataBundle,
+  submitTopDealsGhAFA,
+} from './providers/topdealsghProvider.js';
 
 const mergeSettings = (stored) => {
   const defaults = DEFAULT_API_PROVIDER_SETTINGS();
   if (!stored) return defaults;
+
+  const networkProviders = {};
+  for (const { key } of API_NETWORKS) {
+    const storedValue = stored.networkProviders?.[key];
+    networkProviders[key] =
+      storedValue !== undefined && storedValue !== null && storedValue !== ''
+        ? migrateProviderId(storedValue)
+        : defaults.networkProviders[key] ?? PROVIDER_IDS.DEFAULT;
+  }
+
+  const storedDefault = migrateProviderId(stored.defaultProvider);
+
   return {
-    ...defaults,
-    ...stored,
-    networkProviders: { ...defaults.networkProviders, ...(stored.networkProviders || {}) },
+    forwardingEnabled: stored.forwardingEnabled ?? defaults.forwardingEnabled,
+    defaultProvider: storedDefault || defaults.defaultProvider,
+    networkProviders,
     credentials: {
       smart_data_hub: {
         ...defaults.credentials.smart_data_hub,
         ...(stored.credentials?.smart_data_hub || {}),
       },
-      datamax: {
-        ...defaults.credentials.datamax,
-        ...(stored.credentials?.datamax || {}),
+      topdealsgh: {
+        ...defaults.credentials.topdealsgh,
+        ...(stored.credentials?.topdealsgh || {}),
+        // Migrate leftover Datamax key into TopDealsGH if TopDealsGH not set
+        ...(!stored.credentials?.topdealsgh?.apiKeyEncrypted &&
+        stored.credentials?.datamax?.apiKeyEncrypted
+          ? {
+              apiUrl: stored.credentials.datamax.apiUrl || '',
+              apiKeyEncrypted: stored.credentials.datamax.apiKeyEncrypted,
+            }
+          : {}),
       },
     },
+    fulfillmentWebhookUrl: stored.fulfillmentWebhookUrl ?? defaults.fulfillmentWebhookUrl,
   };
 };
 
 export const getApiProviderSettings = async () => {
-  const settings = await SiteSettings.findOne().lean();
+  const settings = await getSiteSettings(true);
   return mergeSettings(settings?.apiProviderSettings);
 };
 
@@ -56,49 +78,62 @@ const getEnvCredentials = (providerId) => {
       apiSecret: env.smartDataHub.apiSecret,
     };
   }
-  if (providerId === PROVIDER_IDS.DATAMAX) {
-    return { apiUrl: env.datamax.apiUrl, apiKey: env.datamax.apiKey, apiSecret: '' };
+  if (providerId === PROVIDER_IDS.TOPDEALSGH) {
+    return {
+      apiUrl: env.topdealsgh.apiUrl,
+      apiKey: env.topdealsgh.apiKey,
+      apiSecret: env.topdealsgh.secretKey,
+    };
   }
   return { apiUrl: '', apiKey: '', apiSecret: '' };
 };
 
 export const getProviderCredentials = async (providerId) => {
-  const config = PROVIDER_DEFINITIONS[providerId];
+  const id = migrateProviderId(providerId);
+  const config = PROVIDER_DEFINITIONS[id];
   if (!config) return { apiUrl: '', apiKey: '', apiSecret: '' };
 
   const settings = await getApiProviderSettings();
-  const stored = settings.credentials?.[providerId] || {};
-  let apiUrl = stored.apiUrl || getEnvCredentials(providerId).apiUrl || config.defaultUrl;
-  let apiKey = getEnvCredentials(providerId).apiKey;
-  let apiSecret = getEnvCredentials(providerId).apiSecret || '';
+  const stored = settings.credentials?.[id] || {};
+  const envCreds = getEnvCredentials(id);
+  let apiUrl = stored.apiUrl || envCreds.apiUrl || config.defaultUrl;
+  let apiKey = envCreds.apiKey || '';
+  let apiSecret = envCreds.apiSecret || '';
 
-  if (stored.apiKeyEncrypted) {
+  // Env credentials win when set so rotated Vercel secrets override stale admin storage.
+  if (stored.apiKeyEncrypted && !apiKey) {
     try {
       apiKey = decrypt(stored.apiKeyEncrypted);
     } catch {
-      apiKey = getEnvCredentials(providerId).apiKey;
+      apiKey = '';
     }
   }
 
-  if (stored.apiSecretEncrypted) {
+  if (stored.apiSecretEncrypted && !apiSecret) {
     try {
       apiSecret = decrypt(stored.apiSecretEncrypted);
     } catch {
-      apiSecret = getEnvCredentials(providerId).apiSecret || '';
+      apiSecret = '';
     }
   }
 
-  return { apiUrl: apiUrl.replace(/\/$/, ''), apiKey, apiSecret };
+  return {
+    apiUrl: String(apiUrl || '').replace(/\/$/, '').trim(),
+    apiKey: String(apiKey || '').trim(),
+    apiSecret: String(apiSecret || '').trim(),
+  };
 };
 
 export const resolveProviderForCategory = async (category) => {
   const settings = await getApiProviderSettings();
-  const selected = settings.networkProviders?.[category] || PROVIDER_IDS.DEFAULT;
+  const selected = migrateProviderId(
+    settings.networkProviders?.[category] || PROVIDER_IDS.DEFAULT
+  );
   if (selected === PROVIDER_IDS.DISABLED) {
     return PROVIDER_IDS.DISABLED;
   }
   if (selected === PROVIDER_IDS.DEFAULT) {
-    return settings.defaultProvider || PROVIDER_IDS.SMART_DATA_HUB;
+    return migrateProviderId(settings.defaultProvider) || PROVIDER_IDS.TOPDEALSGH;
   }
   return selected;
 };
@@ -106,7 +141,9 @@ export const resolveProviderForCategory = async (category) => {
 export const isNetworkForwardingEnabled = async (category) => {
   const settings = await getApiProviderSettings();
   if (settings.forwardingEnabled === false) return false;
-  const selected = settings.networkProviders?.[category] || PROVIDER_IDS.DEFAULT;
+  const selected = migrateProviderId(
+    settings.networkProviders?.[category] || PROVIDER_IDS.DEFAULT
+  );
   return selected !== PROVIDER_IDS.DISABLED;
 };
 
@@ -124,7 +161,7 @@ export const maskApiKey = (key) => {
 export const serializeApiProviderSettingsForAdmin = async () => {
   const settings = await getApiProviderSettings();
   const smartCreds = await getProviderCredentials(PROVIDER_IDS.SMART_DATA_HUB);
-  const datamaxCreds = await getProviderCredentials(PROVIDER_IDS.DATAMAX);
+  const topCreds = await getProviderCredentials(PROVIDER_IDS.TOPDEALSGH);
   const webhookUrl =
     settings.fulfillmentWebhookUrl || env.fulfillmentWebhookUrl || '';
 
@@ -141,35 +178,50 @@ export const serializeApiProviderSettingsForAdmin = async () => {
         apiKeyHint: maskApiKey(smartCreds.apiKey),
         apiSecretHint: maskApiKey(smartCreds.apiSecret),
       },
-      datamax: {
-        name: PROVIDER_DEFINITIONS.datamax.name,
-        apiUrl: datamaxCreds.apiUrl,
-        configured: Boolean(datamaxCreds.apiKey),
-        apiKeyHint: maskApiKey(datamaxCreds.apiKey),
+      topdealsgh: {
+        name: PROVIDER_DEFINITIONS.topdealsgh.name,
+        apiUrl: topCreds.apiUrl,
+        configured: Boolean(topCreds.apiKey && topCreds.apiSecret),
+        apiKeyHint: maskApiKey(topCreds.apiKey),
+        apiSecretHint: maskApiKey(topCreds.apiSecret),
       },
     },
   };
 };
 
 export const updateApiProviderSettings = async (updates) => {
-  const settings = await SiteSettings.findOne();
+  const settings = await getSiteSettings();
   const current = mergeSettings(settings?.apiProviderSettings);
-  const next = { ...current };
+  const next = {
+    forwardingEnabled: current.forwardingEnabled,
+    defaultProvider: current.defaultProvider,
+    networkProviders: { ...current.networkProviders },
+    credentials: {
+      smart_data_hub: { ...current.credentials.smart_data_hub },
+      topdealsgh: { ...current.credentials.topdealsgh },
+    },
+    fulfillmentWebhookUrl: current.fulfillmentWebhookUrl,
+  };
 
   if (typeof updates.forwardingEnabled === 'boolean') {
     next.forwardingEnabled = updates.forwardingEnabled;
   }
   if (updates.defaultProvider) {
-    next.defaultProvider = updates.defaultProvider;
+    next.defaultProvider = migrateProviderId(updates.defaultProvider);
   }
   if (updates.networkProviders) {
-    next.networkProviders = { ...next.networkProviders, ...updates.networkProviders };
+    for (const { key } of API_NETWORKS) {
+      const value = updates.networkProviders[key];
+      if (value !== undefined && value !== null && value !== '') {
+        next.networkProviders[key] = migrateProviderId(value);
+      }
+    }
   }
   if (updates.fulfillmentWebhookUrl !== undefined) {
     next.fulfillmentWebhookUrl = updates.fulfillmentWebhookUrl;
   }
   if (updates.credentials) {
-    for (const providerId of [PROVIDER_IDS.SMART_DATA_HUB, PROVIDER_IDS.DATAMAX]) {
+    for (const providerId of [PROVIDER_IDS.SMART_DATA_HUB, PROVIDER_IDS.TOPDEALSGH]) {
       const incoming = updates.credentials[providerId];
       if (!incoming) continue;
       if (incoming.apiUrl !== undefined) {
@@ -178,42 +230,46 @@ export const updateApiProviderSettings = async (updates) => {
       if (incoming.apiKey) {
         next.credentials[providerId].apiKeyEncrypted = encrypt(incoming.apiKey);
       }
-      if (incoming.apiSecret && providerId === PROVIDER_IDS.SMART_DATA_HUB) {
+      if (incoming.apiSecret) {
         next.credentials[providerId].apiSecretEncrypted = encrypt(incoming.apiSecret);
       }
     }
   }
 
-  await SiteSettings.findOneAndUpdate({}, { apiProviderSettings: next }, { new: true, upsert: true });
+  await setSiteSettingsFields({ apiProviderSettings: next });
 
   return serializeApiProviderSettingsForAdmin();
 };
 
 export const testProviderConnection = async (providerId) => {
-  const creds = await getProviderCredentials(providerId);
+  const id = migrateProviderId(providerId);
+  const creds = await getProviderCredentials(id);
   if (!creds.apiKey) {
     return { success: false, message: 'API key not configured for this provider.' };
   }
 
-  if (providerId === PROVIDER_IDS.SMART_DATA_HUB) {
+  if (id === PROVIDER_IDS.SMART_DATA_HUB) {
     if (!creds.apiSecret) {
       return { success: false, message: 'Smart Data Hub API secret is required for HMAC authentication.' };
     }
     return testSmartDataHubConnection(creds);
   }
-  if (providerId === PROVIDER_IDS.DATAMAX) {
-    return testDatamaxConnection(creds);
+  if (id === PROVIDER_IDS.TOPDEALSGH) {
+    if (!creds.apiSecret) {
+      return { success: false, message: 'TopDealsGH secret key (x-secret-key) is required.' };
+    }
+    return testTopDealsGhConnection(creds);
   }
 
   return { success: false, message: 'Unknown provider.' };
 };
 
-export const fetchDatamaxBalance = async () => {
-  const creds = await getProviderCredentials(PROVIDER_IDS.DATAMAX);
-  if (!creds.apiKey) {
-    throw new AppError('Datamax API key not configured.', 400);
+export const fetchTopDealsGhBalance = async () => {
+  const creds = await getProviderCredentials(PROVIDER_IDS.TOPDEALSGH);
+  if (!creds.apiKey || !creds.apiSecret) {
+    throw new AppError('TopDealsGH API key and secret key are required.', 400);
   }
-  return getDatamaxBalance(creds);
+  return getTopDealsGhBalance(creds);
 };
 
 export const fetchSmartDataHubBalance = async () => {
@@ -224,58 +280,77 @@ export const fetchSmartDataHubBalance = async () => {
   return getSmartDataHubBalance(creds);
 };
 
-export const submitViaProvider = async (providerId, order, pkg) => {
-  const creds = await getProviderCredentials(providerId);
+/** @deprecated Use fetchTopDealsGhBalance */
+export const fetchDatamaxBalance = fetchTopDealsGhBalance;
 
-  if (providerId === PROVIDER_IDS.SMART_DATA_HUB && (!creds.apiKey || !creds.apiSecret)) {
-    console.log(`[PROVIDER:${providerId}] Mock delivery (missing key/secret):`, order.reference);
+export const submitViaProvider = async (providerId, order, pkg) => {
+  const id = migrateProviderId(providerId);
+  const creds = await getProviderCredentials(id);
+
+  if (id === PROVIDER_IDS.SMART_DATA_HUB && (!creds.apiKey || !creds.apiSecret)) {
+    console.log(`[PROVIDER:${id}] Mock delivery (missing key/secret):`, order.reference);
     return {
       success: true,
-      reference: `MOCK-${providerId}-${order.reference}`,
+      reference: `MOCK-${id}-${order.reference}`,
       mocked: true,
-      providerId,
+      providerId: id,
+    };
+  }
+
+  if (id === PROVIDER_IDS.TOPDEALSGH && (!creds.apiKey || !creds.apiSecret)) {
+    console.log(`[PROVIDER:${id}] Mock delivery (missing key/secret):`, order.reference);
+    return {
+      success: true,
+      reference: `MOCK-${id}-${order.reference}`,
+      mocked: true,
+      providerId: id,
     };
   }
 
   if (!creds.apiKey) {
-    console.log(`[PROVIDER:${providerId}] Mock delivery (no API key):`, order.reference);
+    console.log(`[PROVIDER:${id}] Mock delivery (no API key):`, order.reference);
     return {
       success: true,
-      reference: `MOCK-${providerId}-${order.reference}`,
+      reference: `MOCK-${id}-${order.reference}`,
       mocked: true,
-      providerId,
+      providerId: id,
     };
   }
 
   if (pkg.serviceType === 'afa_registration') {
-    if (providerId === PROVIDER_IDS.SMART_DATA_HUB) {
+    if (id === PROVIDER_IDS.SMART_DATA_HUB) {
       return markInsufficientBalanceIfNeeded({
         ...(await submitSmartDataHubAFA(creds, order, pkg)),
-        providerId,
+        providerId: id,
       });
     }
-    if (providerId === PROVIDER_IDS.DATAMAX) {
+    if (id === PROVIDER_IDS.TOPDEALSGH) {
       return markInsufficientBalanceIfNeeded({
-        ...(await submitDatamaxAFA(creds, order, pkg)),
-        providerId,
+        ...(await submitTopDealsGhAFA(creds, order, pkg)),
+        providerId: id,
       });
     }
   } else {
-    if (providerId === PROVIDER_IDS.SMART_DATA_HUB) {
+    if (id === PROVIDER_IDS.SMART_DATA_HUB) {
       return markInsufficientBalanceIfNeeded({
         ...(await submitSmartDataHubDataBundle(creds, order, pkg)),
-        providerId,
+        providerId: id,
       });
     }
-    if (providerId === PROVIDER_IDS.DATAMAX) {
+    if (id === PROVIDER_IDS.TOPDEALSGH) {
       return markInsufficientBalanceIfNeeded({
-        ...(await submitDatamaxDataBundle(creds, order, pkg)),
-        providerId,
+        ...(await submitTopDealsGhDataBundle(creds, order, pkg)),
+        providerId: id,
       });
     }
   }
 
-  throw new AppError(`Unsupported provider: ${providerId}`, 500);
+  throw new AppError(`Unsupported provider: ${id}`, 500);
 };
 
 export const getQueuedOrders = () => getQueuedProviderOrders(50);
+
+export const isTopDealsGhConfigured = async () => {
+  const creds = await getProviderCredentials(PROVIDER_IDS.TOPDEALSGH);
+  return Boolean(creds.apiKey && creds.apiSecret);
+};

@@ -3,6 +3,8 @@ import api from '../api/client';
 import { formatCurrency, formatDate, validateEmail } from '../utils/validation';
 import { SUPPORT_EMAIL } from '../constants/brand';
 import { useToast } from '../context/ToastContext';
+import { useOnlineStatus } from '../context/OnlineContext';
+import { getOfflineAwareErrorMessage, OFFLINE_ACTION_MESSAGE } from '../utils/offline';
 import FormError, { fieldClass } from '../components/ui/FormError';
 import OtpInput from '../components/ui/OtpInput';
 import { Loader2 } from 'lucide-react';
@@ -10,9 +12,11 @@ import { Loader2 } from 'lucide-react';
 const statusColors = {
   pending: 'bg-amber-100 text-amber-800',
   processing: 'bg-blue-100 text-blue-800',
+  verification: 'bg-violet-100 text-violet-800',
   delivered: 'bg-green-100 text-green-800',
   failed: 'bg-red-100 text-red-800',
   refunded: 'bg-gray-100 text-gray-800',
+  cancelled: 'bg-slate-200 text-slate-700',
 };
 
 export default function OrderHistoryPage() {
@@ -24,9 +28,14 @@ export default function OrderHistoryPage() {
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState({});
   const { toast } = useToast();
+  const { isOnline } = useOnlineStatus();
 
   const requestOTP = async (e) => {
     e.preventDefault();
+    if (!isOnline) {
+      toast(OFFLINE_ACTION_MESSAGE, 'error');
+      return;
+    }
     const emailResult = validateEmail(email);
 
     if (!emailResult.valid) {
@@ -42,7 +51,7 @@ export default function OrderHistoryPage() {
       setStep('otp');
       setErrors({});
     } catch (err) {
-      toast(err.response?.data?.message || 'Failed to send OTP.', 'error');
+      toast(getOfflineAwareErrorMessage(err, 'Failed to send OTP.'), 'error');
     } finally {
       setLoading(false);
     }
@@ -50,6 +59,10 @@ export default function OrderHistoryPage() {
 
   const submitOtp = async (code) => {
     if (verifyLock.current || loading) return;
+    if (!isOnline) {
+      toast(OFFLINE_ACTION_MESSAGE, 'error');
+      return;
+    }
 
     verifyLock.current = true;
     setLoading(true);
@@ -61,8 +74,8 @@ export default function OrderHistoryPage() {
       setStep('orders');
     } catch (err) {
       setOtp('');
-      setErrors({ otp: err.response?.data?.message || 'Invalid OTP.' });
-      toast(err.response?.data?.message || 'Invalid OTP.', 'error');
+      setErrors({ otp: getOfflineAwareErrorMessage(err, 'Invalid OTP.') });
+      toast(getOfflineAwareErrorMessage(err, 'Invalid OTP.'), 'error');
     } finally {
       setLoading(false);
       verifyLock.current = false;
@@ -95,8 +108,8 @@ export default function OrderHistoryPage() {
             placeholder={SUPPORT_EMAIL}
           />
           <FormError message={errors.email} />
-          <button type="submit" disabled={loading} className="btn-primary mt-4 w-full">
-            {loading ? 'Sending...' : 'Send OTP'}
+          <button type="submit" disabled={loading || !isOnline} className="btn-primary mt-4 w-full">
+            {loading ? 'Sending...' : isOnline ? 'Send OTP' : 'Offline — login unavailable'}
           </button>
         </form>
       )}
@@ -113,7 +126,7 @@ export default function OrderHistoryPage() {
               if (errors.otp) setErrors({});
             }}
             onComplete={submitOtp}
-            disabled={loading}
+            disabled={loading || !isOnline}
             error={Boolean(errors.otp)}
             autoFocus
           />

@@ -2,7 +2,7 @@ import User from '../models/User.js';
 import Package from '../models/Package.js';
 import Slider from '../models/Slider.js';
 import SiteSettings from '../models/SiteSettings.js';
-import Checker from '../models/Checker.js';
+import { ensureSiteSettings } from '../services/siteSettingsService.js';
 
 const MTN_BUNDLES = ['10GB', '15GB', '20GB', '25GB', '30GB', '35GB', '40GB', '45GB', '50GB', '100GB', '150GB'];
 const PRICES = { '10GB': 5, '15GB': 7, '20GB': 10, '25GB': 12, '30GB': 14, '35GB': 16, '40GB': 18, '45GB': 20, '50GB': 22, '100GB': 40, '150GB': 55 };
@@ -61,18 +61,15 @@ export const autoSeedIfEmpty = async () => {
       displayOrder: i,
       isActive: true,
       isAvailable: true,
+      adminPaused: false,
     }));
     await Package.insertMany(mtnPackages);
     console.log(`Created ${mtnPackages.length} MTN packages`);
   }
 
   await Package.updateMany(
-    { serviceType: { $in: ['data_bundle', 'result_checker'] } },
-    { $set: { isActive: true, isAvailable: true } }
-  );
-  await Package.updateMany(
-    { category: 'MTN AFA', afaType: 'new' },
-    { $set: { name: 'MTN AFA Registration', isActive: true, isAvailable: true } }
+    { category: 'MTN AFA', afaType: 'new', name: { $ne: 'MTN AFA Registration' } },
+    { $set: { name: 'MTN AFA Registration' } }
   );
 
   if ((await Slider.countDocuments()) === 0) {
@@ -84,21 +81,14 @@ export const autoSeedIfEmpty = async () => {
     ]);
   }
 
-  if ((await Checker.countDocuments()) === 0) {
-    const checkers = [];
-    for (let i = 1; i <= 10; i++) {
-      checkers.push({ checkerType: 'BECE', serialNumber: `BECE2024${String(i).padStart(6, '0')}`, pin: String(1000 + i), year: '2024', status: 'unused' });
-      checkers.push({ checkerType: 'WASSCE', serialNumber: `WASS2024${String(i).padStart(6, '0')}`, pin: String(2000 + i), year: '2024', status: 'unused' });
-    }
-    await Checker.insertMany(checkers);
-  }
+  // Checkers are fulfilled via TopDealsGH stock/API — do not seed local PIN inventory.
 
   await Package.updateMany(
     { category: 'MTN AFA', afaType: { $in: ['renewal', 'status_check'] } },
     { isActive: false, isAvailable: false }
   );
 
-  const existingSettings = await SiteSettings.findOne();
+  const existingSettings = await ensureSiteSettings();
   if (!existingSettings) {
     await SiteSettings.create({
       siteName: 'Wilberforce Data Service',

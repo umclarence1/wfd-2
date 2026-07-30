@@ -2,6 +2,8 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ThemeProvider } from './context/ThemeContext';
 import { ToastProvider } from './context/ToastContext';
+import { OnlineProvider } from './context/OnlineContext';
+import { AuthProvider } from './context/AuthContext';
 import Layout from './components/layout/Layout';
 import HomePage from './pages/HomePage';
 import ServicesPage from './pages/ServicesPage';
@@ -16,6 +18,7 @@ import PromotionsPage from './pages/PromotionsPage';
 import TermsPage from './pages/TermsPage';
 import PrivacyPage from './pages/PrivacyPage';
 import AdminApp from './pages/admin/AdminApp';
+import PwaUpdateNotifier from './components/pwa/PwaUpdateNotifier';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -32,33 +35,38 @@ export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
-        <ToastProvider>
-          <BrowserRouter>
-            <Routes>
-              <Route path="admin/*" element={<AdminApp />} />
-              <Route element={<Layout />}>
-                <Route index element={<HomePage />} />
-                <Route path="services" element={<ServicesPage />} />
-                <Route path="services/data/mtn" element={<DataBundlePage category="MTN" title="MTN Data Bundles" />} />
-                <Route path="services/data/telecel" element={<DataBundlePage category="Telecel" title="Telecel Data Bundles" />} />
-                <Route path="services/data/airteltigo-bigtime" element={<Navigate to="/services/data/airteltigo" replace />} />
-                <Route path="services/data/airteltigo" element={<DataBundlePage category="AirtelTigo" title="AirtelTigo Data Bundles" />} />
-                <Route path="services/afa" element={<AFAPage />} />
-                <Route path="services/checkers" element={<CheckersPage />} />
-                <Route path="services/web-development" element={<WebDevelopmentPage />} />
-                <Route path="services/checkers/bece" element={<CheckerRedirect />} />
-                <Route path="services/checkers/wassce" element={<CheckerRedirect />} />
-                <Route path="order-history" element={<OrderHistoryPage />} />
-                <Route path="payment/callback" element={<PaymentCallbackPage />} />
-                <Route path="contact" element={<Navigate to="/" replace />} />
-                <Route path="faq" element={<FAQPage />} />
-                <Route path="promotions" element={<PromotionsPage />} />
-                <Route path="terms" element={<TermsPage />} />
-                <Route path="privacy" element={<PrivacyPage />} />
-              </Route>
-            </Routes>
-          </BrowserRouter>
-        </ToastProvider>
+        <OnlineProvider>
+          <AuthProvider>
+            <ToastProvider>
+              <PwaUpdateNotifier />
+              <BrowserRouter>
+                <Routes>
+                  <Route path="admin/*" element={<AdminApp />} />
+                  <Route element={<Layout />}>
+                    <Route index element={<HomePage />} />
+                    <Route path="services" element={<ServicesPage />} />
+                    <Route path="services/data/mtn" element={<DataBundlePage category="MTN" title="MTN Data Bundles" />} />
+                    <Route path="services/data/telecel" element={<DataBundlePage category="Telecel" title="Telecel Data Bundles" />} />
+                    <Route path="services/data/airteltigo-bigtime" element={<Navigate to="/services/data/airteltigo" replace />} />
+                    <Route path="services/data/airteltigo" element={<DataBundlePage category="AirtelTigo" title="AirtelTigo Data Bundles" />} />
+                    <Route path="services/afa" element={<AFAPage />} />
+                    <Route path="services/checkers" element={<CheckersPage />} />
+                    <Route path="services/web-development" element={<WebDevelopmentPage />} />
+                    <Route path="services/checkers/bece" element={<CheckerRedirect />} />
+                    <Route path="services/checkers/wassce" element={<CheckerRedirect />} />
+                    <Route path="order-history" element={<OrderHistoryPage />} />
+                    <Route path="payment/callback" element={<PaymentCallbackPage />} />
+                    <Route path="contact" element={<Navigate to="/" replace />} />
+                    <Route path="faq" element={<FAQPage />} />
+                    <Route path="promotions" element={<PromotionsPage />} />
+                    <Route path="terms" element={<TermsPage />} />
+                    <Route path="privacy" element={<PrivacyPage />} />
+                  </Route>
+                </Routes>
+              </BrowserRouter>
+            </ToastProvider>
+          </AuthProvider>
+        </OnlineProvider>
       </ThemeProvider>
     </QueryClientProvider>
   );

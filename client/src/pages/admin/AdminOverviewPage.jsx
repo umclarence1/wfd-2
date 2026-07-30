@@ -1,5 +1,14 @@
 import { useQuery } from '@tanstack/react-query';
-import { ShoppingCart, CalendarDays, Wallet, Users, Clock, CheckCircle2, XCircle, GraduationCap } from 'lucide-react';
+import {
+  ShoppingCart,
+  CalendarDays,
+  Wallet,
+  Users,
+  Clock,
+  CheckCircle2,
+  XCircle,
+  Activity,
+} from 'lucide-react';
 import api from '../../api/client';
 import { formatCurrency } from '../../utils/validation';
 import AdminPageHeader from '../../components/admin/AdminPageHeader';
@@ -12,11 +21,18 @@ export default function AdminOverviewPage() {
     queryFn: () => api.get('/admin/analytics').then((r) => r.data.analytics),
   });
 
+  const { data: topBalance } = useQuery({
+    queryKey: ['admin-topdealsgh-balance'],
+    queryFn: () => api.get('/admin/api-providers/topdealsgh/balance').then((r) => r.data),
+    retry: false,
+    staleTime: 60_000,
+  });
+
   if (isLoading) {
     return (
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {['bg-blue-100', 'bg-violet-100', 'bg-emerald-100', 'bg-amber-100'].map((color, i) => (
-          <div key={i} className={`h-28 animate-pulse rounded-2xl ${color}`} />
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="h-32 animate-pulse rounded-2xl border border-white/10 bg-[#111827]" />
         ))}
       </div>
     );
@@ -24,57 +40,113 @@ export default function AdminOverviewPage() {
 
   if (isError) {
     return (
-      <div className="admin-panel text-sm text-red-600">
+      <div className="rounded-2xl border border-rose-500/30 bg-[#111827] p-5 text-sm text-rose-300">
         Could not load analytics. Is the server running?
       </div>
     );
   }
 
+  const walletValue =
+    topBalance?.balance != null
+      ? formatCurrency(topBalance.balance)
+      : '—';
+
   return (
     <div className="space-y-8">
-      <AdminPageHeader title="Overview" subtitle="Welcome back — here is how your store is performing." />
+      <AdminPageHeader title="Overview" subtitle="Welcome back — store performance at a glance." />
 
-      <PromoCheckoutToggle />
+      <div className="flex flex-col gap-4 lg:flex-row">
+        <div className="flex flex-1 flex-col gap-3 rounded-2xl border border-sky-500/25 bg-[#111827] p-5">
+          <div className="flex items-center gap-2">
+            <Activity className="h-4 w-4 text-sky-400" />
+            <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Recent Alerts</p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-xl border border-sky-500/30 bg-sky-500/10 px-4 py-3">
+              <p className="text-xs font-semibold text-sky-300">Pending orders</p>
+              <p className="mt-1 text-lg font-bold text-white">{data.pendingOrders ?? 0}</p>
+              <p className="mt-1 text-xs text-sky-200/80">Waiting or queued for delivery</p>
+            </div>
+            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+              <p className="text-xs font-semibold text-amber-300">Failed orders</p>
+              <p className="mt-1 text-lg font-bold text-white">{data.failedOrders ?? 0}</p>
+              <p className="mt-1 text-xs text-amber-200/80">Need review or retry</p>
+            </div>
+          </div>
+        </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <AdminStatCard label="Total Orders" value={data.totalOrders} icon={ShoppingCart} tone="blue" />
-        <AdminStatCard label="Orders Today" value={data.ordersToday} icon={CalendarDays} tone="violet" />
-        <AdminStatCard label="Revenue" value={formatCurrency(data.revenue)} icon={Wallet} tone="emerald" />
-        <AdminStatCard label="Customers" value={data.customers} icon={Users} tone="amber" />
+        <div className="rounded-2xl border border-white/10 bg-[#111827] p-5 lg:w-[320px]">
+          <PromoCheckoutToggle />
+        </div>
       </div>
 
       <div>
-        <h3 className="mb-4 text-sm font-bold uppercase tracking-wide text-slate-500">Delivery Status</h3>
-        <div className="grid gap-4 sm:grid-cols-3">
-          <AdminStatCard label="Pending" value={data.pendingOrders} icon={Clock} tone="amber" />
-          <AdminStatCard label="Delivered" value={data.deliveredOrders} icon={CheckCircle2} tone="emerald" />
-          <AdminStatCard label="Failed" value={data.failedOrders} icon={XCircle} tone="rose" />
+        <h3 className="mb-4 text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500">Overview</h3>
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <AdminStatCard
+            label="Total Orders"
+            value={data.totalOrders ?? 0}
+            hint="all time"
+            icon={ShoppingCart}
+            tone="blue"
+          />
+          <AdminStatCard
+            label="Wallet Balance"
+            value={walletValue}
+            hint={topBalance?.balance != null ? 'available' : 'TopDealsGH'}
+            icon={Wallet}
+            tone="sky"
+          />
+          <AdminStatCard
+            label="Revenue"
+            value={formatCurrency(data.revenue)}
+            hint="delivered orders"
+            icon={CheckCircle2}
+            tone="emerald"
+          />
+          <AdminStatCard
+            label="Customers"
+            value={data.customers ?? 0}
+            hint="registered"
+            icon={Users}
+            tone="violet"
+          />
         </div>
       </div>
 
-      {data.checkers && (
-        <div className="overflow-hidden rounded-2xl border border-emerald-200/80 bg-gradient-to-br from-emerald-50 to-teal-100 p-5 shadow-sm sm:p-6">
-          <div className="flex items-center gap-3 border-b border-emerald-200/60 pb-4">
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100 text-emerald-600 ring-1 ring-emerald-200/80">
-              <GraduationCap className="h-5 w-5" />
-            </span>
-            <div>
-              <h3 className="font-bold text-emerald-950">Checker Stock</h3>
-              <p className="text-sm text-emerald-700/80">Available result checkers in inventory</p>
-            </div>
-          </div>
-          <div className="mt-5 grid gap-4 sm:grid-cols-2">
-            <div className="rounded-xl border border-emerald-200/60 bg-white/70 px-4 py-3 backdrop-blur-sm">
-              <p className="text-sm text-emerald-700/80">BECE available</p>
-              <p className="mt-1 text-2xl font-bold text-emerald-950">{data.checkers.bece?.unused ?? 0}</p>
-            </div>
-            <div className="rounded-xl border border-emerald-200/60 bg-white/70 px-4 py-3 backdrop-blur-sm">
-              <p className="text-sm text-emerald-700/80">WASSCE available</p>
-              <p className="mt-1 text-2xl font-bold text-emerald-950">{data.checkers.wassce?.unused ?? 0}</p>
-            </div>
-          </div>
+      <div>
+        <h3 className="mb-4 text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500">Order Activity</h3>
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <AdminStatCard
+            label="Orders Today"
+            value={data.ordersToday ?? 0}
+            hint="paid today"
+            icon={CalendarDays}
+            tone="blue"
+          />
+          <AdminStatCard
+            label="Pending"
+            value={data.pendingOrders ?? 0}
+            hint="in progress"
+            icon={Clock}
+            tone="amber"
+          />
+          <AdminStatCard
+            label="Delivered"
+            value={data.deliveredOrders ?? 0}
+            hint="completed"
+            icon={CheckCircle2}
+            tone="emerald"
+          />
+          <AdminStatCard
+            label="Failed"
+            value={data.failedOrders ?? 0}
+            hint="needs attention"
+            icon={XCircle}
+            tone="rose"
+          />
         </div>
-      )}
+      </div>
     </div>
   );
 }
