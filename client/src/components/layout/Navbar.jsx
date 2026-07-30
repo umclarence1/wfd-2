@@ -24,6 +24,13 @@ export default function Navbar() {
   });
 
   const settings = settingsData || {};
+  const announcementText = String(settings?.announcementBanner?.text || '').trim();
+  const announcementLink = String(settings?.announcementBanner?.link || '').trim();
+  const showAnnouncement =
+    Boolean(settings?.announcementBanner?.enabled) && Boolean(announcementText);
+  const safeAnnouncementLink = /^https?:\/\//i.test(announcementLink)
+    ? announcementLink
+    : '';
 
   // Keep content padding aligned with the real (possibly taller) navbar height.
   useEffect(() => {
@@ -39,28 +46,14 @@ export default function Navbar() {
     const ro = new ResizeObserver(update);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [settings?.announcementBanner?.enabled]);
+  }, [showAnnouncement, open]);
 
   return (
-    <div ref={navRef} className="fixed top-0 left-0 right-0 z-50 w-full bg-blue-600">
-      {settings?.announcementBanner?.enabled && (
-        <div className="bg-blue-600 px-4 py-2 text-center text-sm font-medium text-white">
-          {settings.announcementBanner.link &&
-          /^https?:\/\//i.test(String(settings.announcementBanner.link).trim()) ? (
-            <a
-              href={settings.announcementBanner.link}
-              className="hover:underline"
-              rel="noopener noreferrer"
-            >
-              {settings.announcementBanner.text}
-            </a>
-          ) : (
-            settings.announcementBanner.text
-          )}
-        </div>
-      )}
-
-      <header>
+    <div
+      ref={navRef}
+      className="fixed top-0 left-0 right-0 z-50 w-full bg-blue-600 pt-[env(safe-area-inset-top,0px)]"
+    >
+      <header className="bg-blue-600">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3.5">
           <Link to="/" className="flex items-center transition-opacity duration-200 hover:opacity-90">
             <span className="text-base font-bold tracking-tight text-white sm:text-lg">
@@ -104,8 +97,20 @@ export default function Navbar() {
           </button>
         </div>
 
+        {showAnnouncement && (
+          <p className="px-4 pb-3 text-center text-xs font-medium leading-snug text-white/95 sm:text-sm">
+            {safeAnnouncementLink ? (
+              <a href={safeAnnouncementLink} className="hover:underline" rel="noopener noreferrer">
+                {announcementText}
+              </a>
+            ) : (
+              announcementText
+            )}
+          </p>
+        )}
+
         {open && (
-          <div className="border-t border-white/20 bg-blue-700 px-4 py-4 lg:hidden">
+          <div className="border-t border-white/15 px-4 py-4 lg:hidden">
             {navLinks.map(({ to, label }) => (
               <NavLink
                 key={to}
