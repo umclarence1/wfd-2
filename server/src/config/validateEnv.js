@@ -5,10 +5,10 @@ const REQUIRED_IN_PRODUCTION = [
   'JWT_ACCESS_SECRET',
   'JWT_REFRESH_SECRET',
   'ENCRYPTION_KEY',
-  'CRON_SECRET',
-  'ADMIN_OTP_EMAIL',
   'PAYSTACK_SECRET_KEY',
 ];
+
+const RECOMMENDED_IN_PRODUCTION = ['CRON_SECRET', 'ADMIN_OTP_EMAIL'];
 
 export const validateProductionEnv = () => {
   if (env.nodeEnv !== 'production') return;
@@ -32,7 +32,13 @@ export const validateProductionEnv = () => {
     }
   }
 
-  if ((process.env.CRON_SECRET || '').trim().length < 24) {
-    throw new Error('CRON_SECRET must be at least 24 characters in production.');
+  for (const key of RECOMMENDED_IN_PRODUCTION) {
+    if (!process.env[key]?.trim()) {
+      console.warn(`[ENV] Warning: ${key} is not set. Some features will be unavailable.`);
+    }
+  }
+
+  if (process.env.CRON_SECRET && process.env.CRON_SECRET.trim().length < 24) {
+    console.warn('[ENV] Warning: CRON_SECRET should be at least 24 characters.');
   }
 };

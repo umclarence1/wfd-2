@@ -273,9 +273,13 @@ router.patch('/orders/bulk-status', requirePermission('orders'), validateBody(or
 
   for (const order of orders) {
     if (deliveryStatus === 'verification') {
-      const previous = beforeMap.get(String(order._id));
-      const emailed = await maybeSendVerificationEmail(order, previous);
-      if (emailed) await order.save();
+      try {
+        const previous = beforeMap.get(String(order._id));
+        const emailed = await maybeSendVerificationEmail(order, previous, { force: true });
+        if (emailed) await order.save();
+      } catch (emailErr) {
+        console.error('[VERIFICATION_EMAIL] Bulk update email failed:', emailErr.message);
+      }
     }
     req.app.get('io')?.emit('order:updated', {
       reference: order.reference,
@@ -305,12 +309,20 @@ router.patch('/orders/:id/status', requirePermission('orders'), validateBody(ord
   if (!existing) throw new AppError('Order not found.', 404);
   const previousDelivery = existing.deliveryStatus;
 
-  const order = await Order.findByIdAndUpdate(req.params.id, updates, { new: true, runValidators: true });
+  const order = await Order.findByIdAndUpdate(req.params.id, updates, {
+    new: true,
+    runValidators: true,
+  });
   if (!order) throw new AppError('Order not found.', 404);
 
+  // Never fail the status change because email delivery broke.
   if (deliveryStatus === 'verification') {
-    const emailed = await maybeSendVerificationEmail(order, previousDelivery);
-    if (emailed) await order.save();
+    try {
+      const emailed = await maybeSendVerificationEmail(order, previousDelivery, { force: true });
+      if (emailed) await order.save();
+    } catch (emailErr) {
+      console.error('[VERIFICATION_EMAIL] Failed after status update:', emailErr.message);
+    }
   }
 
   req.app.get('io')?.emit('order:updated', {

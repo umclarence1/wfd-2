@@ -34,10 +34,9 @@ const buildQueuedPayload = (order) => ({
   raw: null,
 });
 
-export const maybeSendVerificationEmail = async (order, previousDeliveryStatus) => {
-  // MTN verification notices are delayed (pending ≥ 1h30m) — see mtnPendingNoticeService.
-  // Immediate email is only for non-MTN when status becomes verification (e.g. admin).
-  if (String(order.category || '').toUpperCase() === 'MTN') return false;
+export const maybeSendVerificationEmail = async (order, previousDeliveryStatus, { force = false } = {}) => {
+  // Auto-sync skips MTN (1h30m delayed notice). Admin manual "verification" can force it.
+  if (!force && String(order.category || '').toUpperCase() === 'MTN') return false;
   if (order.deliveryStatus !== 'verification') return false;
   if (previousDeliveryStatus === 'verification') return false;
   if (order.metadata?.verificationEmailSentAt) return false;
@@ -48,6 +47,7 @@ export const maybeSendVerificationEmail = async (order, previousDeliveryStatus) 
     ...(order.metadata || {}),
     verificationEmailSentAt: new Date().toISOString(),
   };
+  order.markModified?.('metadata');
   return true;
 };
 
