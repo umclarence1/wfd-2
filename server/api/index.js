@@ -58,8 +58,9 @@ const getApp = () => {
 
 export default async (req, res) => {
   try {
-    maybeRunBackgroundJobs();
     const expressApp = await getApp();
+    // Must run after bootstrap — these hit Mongo and fail on a cold start otherwise.
+    maybeRunBackgroundJobs();
     return expressApp(req, res);
   } catch (err) {
     console.error('[API] Bootstrap failed:', err);

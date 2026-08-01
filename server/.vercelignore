@@ -1,0 +1,11 @@
+node_modules
+.vercel
+
+# Never ship local secrets — production values come from Vercel env vars.
+.env
+.env.*
+!.env.example
+
+*.log
+uploads/
+data/
