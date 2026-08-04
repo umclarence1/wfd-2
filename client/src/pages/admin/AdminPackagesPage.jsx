@@ -57,10 +57,10 @@ export default function AdminPackagesPage() {
   const { data, isLoading, isError } = useQuery({
     queryKey: ['admin-packages'],
     queryFn: () => api.get('/admin/packages').then((r) => r.data.packages),
-    staleTime: 0,
-    refetchOnMount: 'always',
-    refetchOnWindowFocus: true,
-    refetchInterval: import.meta.env.PROD ? 60_000 : false,
+    staleTime: 30_000,
+    refetchOnMount: true,
+    refetchOnWindowFocus: false,
+    refetchInterval: false,
   });
 
   const packages = Array.isArray(data) ? data : [];
@@ -323,12 +323,13 @@ export default function AdminPackagesPage() {
               </tr>
             </thead>
             <tbody>
-              {items.map((pkg) => (
+              {items.filter(Boolean).map((pkg) => (
                 <tr key={pkg._id}>
                   <td className="font-semibold text-slate-900">{pkg.name}</td>
                   <td>{pkg.dataAmount || '—'}</td>
                   <td>
                     <PackagePriceInput
+                      pkg={pkg}
                       value={pkg.price}
                       isSaving={updatePackage.isPending}
                       onSave={(price) => updatePackage.mutate({ id: pkg._id, payload: { price } })}

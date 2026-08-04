@@ -13,13 +13,26 @@ const CHECKER_CATEGORY_MAP = {
 };
 
 let checkerOffersCache = { at: 0, data: null };
-const CHECKER_OFFERS_TTL_MS = 60_000;
+const CHECKER_OFFERS_TTL_MS = 5 * 60_000;
+const CHECKER_OFFERS_STALE_MS = 30 * 60_000;
 
-const getCachedCheckerOffers = async (creds) => {
+const getCachedCheckerOffers = async (creds, { allowStale = false } = {}) => {
   const now = Date.now();
-  if (checkerOffersCache.data && now - checkerOffersCache.at < CHECKER_OFFERS_TTL_MS) {
+  const age = now - checkerOffersCache.at;
+  if (checkerOffersCache.data && age < CHECKER_OFFERS_TTL_MS) {
     return checkerOffersCache.data;
   }
+
+  // Serve slightly stale stock immediately and refresh in the background.
+  if (allowStale && checkerOffersCache.data && age < CHECKER_OFFERS_STALE_MS) {
+    getTopDealsGhCheckerOffers(creds)
+      .then((data) => {
+        checkerOffersCache = { at: Date.now(), data };
+      })
+      .catch(() => {});
+    return checkerOffersCache.data;
+  }
+
   const data = await getTopDealsGhCheckerOffers(creds);
   checkerOffersCache = { at: now, data };
   return data;

@@ -12,6 +12,13 @@ const LEGACY_FILTER = {
   $or: [{ settingsKey: { $exists: false } }, { settingsKey: null }, { settingsKey: '' }],
 };
 
+let leanSettingsCache = { at: 0, key: '', data: null };
+const LEAN_SETTINGS_TTL_MS = 15_000;
+
+const clearLeanSettingsCache = () => {
+  leanSettingsCache = { at: 0, key: '', data: null };
+};
+
 export const getSiteSettingsKey = () => env.siteSettingsKey;
 
 const assignSettingsKey = async (doc, key) => {
@@ -102,12 +109,29 @@ export const ensureSiteSettings = async () => {
 
 export const getSiteSettings = async (lean = false) => {
   const key = getSiteSettingsKey();
+
+  // Short in-memory cache — every request hits maintenanceCheck → getSiteSettings.
+  if (lean) {
+    const now = Date.now();
+    if (
+      leanSettingsCache.key === key &&
+      leanSettingsCache.data &&
+      now - leanSettingsCache.at < LEAN_SETTINGS_TTL_MS
+    ) {
+      return leanSettingsCache.data;
+    }
+  }
+
   const query = SiteSettings.findOne({ settingsKey: key });
   let settings = lean ? await query.lean() : await query;
 
   if (!settings) {
     const created = await ensureSiteSettings();
-    return lean ? created.toObject() : created;
+    settings = lean ? created.toObject() : created;
+  }
+
+  if (lean && settings) {
+    leanSettingsCache = { at: Date.now(), key, data: settings };
   }
 
   return settings;
@@ -116,6 +140,7 @@ export const getSiteSettings = async (lean = false) => {
 export const updateSiteSettings = async (updates, options = {}) => {
   const key = getSiteSettingsKey();
   await ensureSiteSettings();
+  clearLeanSettingsCache();
 
   return SiteSettings.findOneAndUpdate(
     { settingsKey: key },

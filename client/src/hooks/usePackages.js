@@ -4,11 +4,11 @@ import api from '../api/client';
 export const packagesQueryOptions = {
   queryKey: ['packages'],
   queryFn: () => api.get('/packages').then((r) => r.data.packages),
-  staleTime: 60 * 1000,
+  staleTime: 2 * 60 * 1000,
   gcTime: 30 * 60 * 1000,
   retry: 1,
   placeholderData: (previousData) => previousData ?? [],
-  refetchOnMount: true,
+  refetchOnMount: false,
   refetchOnWindowFocus: false,
   refetchInterval: false,
 };

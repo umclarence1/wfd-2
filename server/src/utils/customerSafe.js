@@ -41,12 +41,26 @@ export const sanitizeOrderForCustomer = (order, { includeChecker = false, includ
     safe.phone = order.phone;
   }
 
-  if (includeChecker && order.paymentStatus === 'paid' && order.checker) {
-    safe.checker = {
-      checkerType: order.checker.checkerType,
-      serialNumber: order.checker.serialNumber,
-      pin: order.checker.pin,
-    };
+  if (includeChecker && order.paymentStatus === 'paid') {
+    const populatedCheckers =
+      Array.isArray(order.checkers) && order.checkers.length
+        ? order.checkers
+        : order.checker
+          ? [order.checker]
+          : [];
+
+    safe.checkers = populatedCheckers
+      .filter((checker) => checker?.serialNumber && checker?.pin)
+      .map((checker) => ({
+        checkerType: checker.checkerType,
+        serialNumber: checker.serialNumber,
+        pin: checker.pin,
+      }));
+
+    // Backward compatibility for clients expecting a singular checker.
+    if (safe.checkers.length) {
+      [safe.checker] = safe.checkers;
+    }
   }
 
   return safe;

@@ -1,22 +1,29 @@
 import { useEffect, useState } from 'react';
 
-export default function PackagePriceInput({ pkg, onSave, isSaving }) {
-  const [price, setPrice] = useState(String(pkg.price));
+/**
+ * Inline package price editor.
+ * Accepts either `pkg` (preferred) or legacy `value` so a mismatched
+ * call site cannot crash the admin packages page.
+ */
+export default function PackagePriceInput({ pkg, value, onSave, isSaving }) {
+  const currentPrice = pkg?.price ?? value ?? '';
+  const [price, setPrice] = useState(String(currentPrice));
   const [dirty, setDirty] = useState(false);
 
   useEffect(() => {
-    setPrice(String(pkg.price));
+    setPrice(String(pkg?.price ?? value ?? ''));
     setDirty(false);
-  }, [pkg._id, pkg.price]);
+  }, [pkg?._id, pkg?.price, value]);
 
   const save = () => {
     const next = Number(price);
     if (Number.isNaN(next) || next < 0) return;
-    if (next === pkg.price) {
+    const previous = Number(pkg?.price ?? value);
+    if (next === previous) {
       setDirty(false);
       return;
     }
-    onSave(next);
+    onSave?.(next);
   };
 
   return (

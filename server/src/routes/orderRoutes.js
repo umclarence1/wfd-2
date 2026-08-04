@@ -107,7 +107,9 @@ router.get(
 
     if (order.paymentStatus === 'paid') {
       const updated = includeChecker
-        ? await Order.findById(order._id).populate('checker', 'serialNumber pin checkerType')
+        ? await Order.findById(order._id)
+            .populate('checker', 'serialNumber pin checkerType')
+            .populate('checkers', 'serialNumber pin checkerType')
         : order;
       return res.json({
         success: true,
@@ -136,7 +138,9 @@ router.get(
     });
 
     const updated = includeChecker
-      ? await Order.findById(result.order._id).populate('checker', 'serialNumber pin checkerType')
+      ? await Order.findById(result.order._id)
+          .populate('checker', 'serialNumber pin checkerType')
+          .populate('checkers', 'serialNumber pin checkerType')
       : result.order;
     res.json({ success: true, order: sanitizeOrder(updated, { includeChecker }) });
   })
@@ -167,12 +171,21 @@ router.post(
 
     const orders = await Order.find({ email: emailResult.normalized })
       .sort({ createdAt: -1 })
-      .select('reference packageName phone packagePrice totalAmount deliveryStatus paymentStatus createdAt category serviceType')
+      .select(
+        'reference packageName phone packagePrice totalAmount deliveryStatus paymentStatus createdAt category serviceType checker checkers'
+      )
+      .populate('checker', 'serialNumber pin checkerType')
+      .populate('checkers', 'serialNumber pin checkerType')
       .lean();
 
     res.json({
       success: true,
-      orders: orders.map((order) => sanitizeOrder(order, { includePhone: true })),
+      orders: orders.map((order) =>
+        sanitizeOrder(order, {
+          includePhone: true,
+          includeChecker: order.paymentStatus === 'paid',
+        })
+      ),
     });
   })
 );
@@ -185,6 +198,7 @@ router.get(
     const orders = await Order.find({ user: req.user._id })
       .sort({ createdAt: -1 })
       .populate('checker', 'serialNumber pin checkerType')
+      .populate('checkers', 'serialNumber pin checkerType')
       .lean();
 
     res.json({
@@ -205,6 +219,7 @@ router.get(
 
     const order = await Order.findOne({ reference: req.params.reference, email })
       .populate('checker', 'serialNumber pin checkerType')
+      .populate('checkers', 'serialNumber pin checkerType')
       .lean();
 
     if (!order) throw new AppError('Order not found.', 404);

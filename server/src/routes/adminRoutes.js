@@ -89,7 +89,9 @@ router.get(
 
 // Packages
 router.get('/packages', requirePermission('packages'), asyncHandler(async (_req, res) => {
-  const packages = await Package.find().sort({ category: 1, displayOrder: 1 });
+  const packages = await Package.find()
+    .sort({ category: 1, displayOrder: 1 })
+    .lean();
   res.json({ success: true, packages });
 }));
 

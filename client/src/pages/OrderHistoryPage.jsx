@@ -162,6 +162,25 @@ export default function OrderHistoryPage() {
                   <div><span className="text-gray-500">Payment:</span> {order.paymentStatus}</div>
                   <div><span className="text-gray-500">Date:</span> {formatDate(order.createdAt)}</div>
                 </div>
+                {(order.checkers?.length || order.checker) && (
+                  <div className="mt-4 rounded-xl bg-green-50 p-4 text-sm text-green-950">
+                    <p className="font-bold">Checker Details</p>
+                    {(order.checkers?.length ? order.checkers : [order.checker]).map(
+                      (checker, index) => (
+                        <div
+                          key={`${checker.serialNumber}-${index}`}
+                          className={index ? 'mt-3 border-t border-green-200 pt-3' : 'mt-2'}
+                        >
+                          {(order.checkers?.length || 0) > 1 && (
+                            <p className="font-semibold">Checker {index + 1}</p>
+                          )}
+                          <p>Serial: {checker.serialNumber}</p>
+                          <p>PIN: {checker.pin}</p>
+                        </div>
+                      )
+                    )}
+                  </div>
+                )}
               </div>
             ))
           )}

@@ -59,11 +59,23 @@ export default function PaymentCallbackPage() {
                 <p><strong>Product:</strong> {order.packageName}</p>
                 <p><strong>Amount:</strong> {formatCurrency(order.totalAmount)}</p>
                 <p><strong>Status:</strong> {order.deliveryStatus}</p>
-                {order.checker && (
+                {(order.checkers?.length || order.checker) && (
                   <div className="mt-4 rounded-xl bg-green-50 p-4 transition-all duration-300 hover:shadow-md">
                     <p className="font-bold">Checker Details</p>
-                    <p>Serial: {order.checker.serialNumber}</p>
-                    <p>PIN: {order.checker.pin}</p>
+                    {(order.checkers?.length ? order.checkers : [order.checker]).map(
+                      (checker, index) => (
+                        <div
+                          key={`${checker.serialNumber}-${index}`}
+                          className={index ? 'mt-3 border-t border-green-200 pt-3' : 'mt-2'}
+                        >
+                          {(order.checkers?.length || 0) > 1 && (
+                            <p className="font-semibold">Checker {index + 1}</p>
+                          )}
+                          <p>Serial: {checker.serialNumber}</p>
+                          <p>PIN: {checker.pin}</p>
+                        </div>
+                      )
+                    )}
                   </div>
                 )}
               </div>
