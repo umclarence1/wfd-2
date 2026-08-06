@@ -1,6 +1,6 @@
-import { useEffect } from 'react';
 import { usePackagesByCategory } from '../../hooks/usePackages';
 import { getNetworkBrandColors } from '../../constants/networkColors';
+import { useEffect } from 'react';
 
 export default function PackageSelector({
   category,
@@ -13,7 +13,12 @@ export default function PackageSelector({
   const packages = packagesOverride || hook.packages;
   const isError = packagesOverride ? false : hook.isError;
   const refetch = hook.refetch;
-  const isFetching = packagesOverride ? false : hook.isFetching;
+  const catalogReady = packagesOverride
+    ? true
+    : Array.isArray(hook.data) && hook.data.length > 0;
+  const isLoadingCatalog = packagesOverride
+    ? false
+    : !catalogReady && (hook.isPending || hook.isFetching);
 
   const available = packages.filter((p) => p.isActive !== false && p.isAvailable !== false);
 
@@ -22,7 +27,7 @@ export default function PackageSelector({
     onSelect(available[0]);
   }, [summaryOnly, available, selected, onSelect]);
 
-  if (isError) {
+  if (isError && !catalogReady) {
     return (
       <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-center text-sm font-medium text-red-800">
         <p>Could not load packages. Is the server running?</p>
@@ -34,7 +39,7 @@ export default function PackageSelector({
   }
 
   if (!available.length) {
-    if (isFetching) {
+    if (isLoadingCatalog) {
       return <p className="text-sm font-medium text-gray-600">Loading packages...</p>;
     }
     return (
@@ -45,16 +50,6 @@ export default function PackageSelector({
   }
 
   if (summaryOnly) {
-    if (!selected && isFetching) {
-      return <p className="text-sm font-medium text-gray-600">Loading checker details...</p>;
-    }
-    if (!isFetching && !available.length) {
-      return (
-        <p className="rounded-xl border border-red-200 bg-red-50 p-4 text-center text-sm font-semibold text-red-800">
-          This checker is currently out of stock.
-        </p>
-      );
-    }
     return null;
   }
 

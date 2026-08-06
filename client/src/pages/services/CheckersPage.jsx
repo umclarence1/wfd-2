@@ -10,7 +10,7 @@ export const CHECKER_EXAM_TYPES = [
 
 export default function CheckersPage() {
   const [examType, setExamType] = useState(null);
-  const { data: packages = [], isFetching, refetch } = usePackages();
+  const { data: packages = [], isFetching, isPending } = usePackages();
 
   // Only show exam types that are on sale locally and in stock on TopDealsGH.
   const availableExamTypes = useMemo(() => {
@@ -27,11 +27,6 @@ export default function CheckersPage() {
   }, [packages]);
 
   useEffect(() => {
-    // Fresh stock when opening Result Checker (TopDeals can change).
-    refetch();
-  }, [refetch]);
-
-  useEffect(() => {
     if (!availableExamTypes.length) {
       setExamType(null);
       return;
@@ -45,7 +40,21 @@ export default function CheckersPage() {
     }
   }, [availableExamTypes, examType]);
 
-  if (!isFetching && availableExamTypes.length === 0) {
+  const stillLoading = (isPending || isFetching) && !(packages || []).length;
+
+  if (stillLoading) {
+    return (
+      <div className="mx-auto max-w-md px-4 py-10">
+        <div className="flex items-center gap-3">
+          <div className="h-14 w-14 animate-pulse rounded-xl bg-gray-200" />
+          <div className="h-6 w-40 animate-pulse rounded bg-gray-200" />
+        </div>
+        <p className="mt-8 text-sm text-gray-500">Loading Result Checker...</p>
+      </div>
+    );
+  }
+
+  if (availableExamTypes.length === 0) {
     return (
       <div className="mx-auto max-w-lg px-4 py-10">
         <h1 className="text-xl font-bold text-gray-900">Result Checker</h1>
@@ -58,7 +67,6 @@ export default function CheckersPage() {
 
   return (
     <PurchaseForm
-      key={examType ?? 'none'}
       category={examType ?? ''}
       title="Result Checker"
       checkerExamType={examType}

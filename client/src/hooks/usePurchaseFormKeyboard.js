@@ -38,14 +38,18 @@ export function usePurchaseFormKeyboard() {
     if (!el) return;
 
     const scroll = () => {
+      // Keep the focused field in the visible area above the keyboard.
       el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+      // Also nudge the form container if present (helps Android Chrome).
+      formRef.current?.scrollIntoView?.({ block: 'nearest' });
     };
 
-    // iOS opens the keyboard after focus; wait then scroll into the remaining viewport.
+    // Soft keyboards open after focus; retry so the field stays on-screen.
     requestAnimationFrame(() => {
       scroll();
-      window.setTimeout(scroll, 250);
-      window.setTimeout(scroll, 450);
+      window.setTimeout(scroll, 150);
+      window.setTimeout(scroll, 350);
+      window.setTimeout(scroll, 550);
     });
   };
 

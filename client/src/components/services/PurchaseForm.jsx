@@ -62,7 +62,7 @@ export default function PurchaseForm({
   const brand = getNetworkBrandColors(isChecker ? 'WAEC Checkers' : category);
   const [step, setStep] = useState('select');
   const [selected, setSelected] = useState(null);
-  const [quantity, setQuantity] = useState(1);
+  const quantity = 1;
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [promoCode, setPromoCode] = useState('');
@@ -101,6 +101,8 @@ export default function PurchaseForm({
     }
   };
 
+  const { packages: checkerPackages } = usePackagesByCategory(isChecker ? category : '');
+
   const handleSelectPackage = useCallback((pkg) => {
     setSelected(pkg);
     const qty = isChecker ? quantity : 1;
@@ -109,27 +111,27 @@ export default function PurchaseForm({
     if (showAfaForm) setStep('checkout');
   }, [isChecker, quantity, showAfaForm]);
 
-  const handleContinueChecker = () => {
-    if (!selected) {
-      toast('Please select an exam type first.', 'error');
-      return;
-    }
-    setBreakdown(calculatePaymentBreakdown(selected.price * quantity));
-    setStep('checkout');
-  };
-
-  const handleGoBack = () => {
-    setStep('select');
-    if (!isChecker) {
+  // Auto-pick the checker package when an exam type is chosen (single-page flow).
+  useEffect(() => {
+    if (!isChecker) return;
+    if (!category) {
       setSelected(null);
       setBreakdown(null);
+      return;
     }
-    setPromoApplied('');
-    setErrors({});
-    if (isChecker && onCheckerExamTypeChange) {
-      // keep exam type; allow changing quantity
+    const available = checkerPackages.filter(
+      (p) => p.isActive !== false && p.isAvailable !== false
+    );
+    if (!available.length) {
+      setSelected(null);
+      setBreakdown(null);
+      return;
     }
-  };
+    const next = available[0];
+    if (selected?._id !== next._id) {
+      handleSelectPackage(next);
+    }
+  }, [isChecker, category, checkerPackages, selected?._id, handleSelectPackage]);
 
   useEffect(() => {
     if (showPromoField) return;
@@ -292,6 +294,149 @@ export default function PurchaseForm({
         ? 'w-full rounded-lg border border-[#E40520] bg-[#E40520] py-3.5 text-base font-bold text-white shadow-sm transition hover:bg-[#c9041c] disabled:opacity-50'
         : 'btn-primary w-full !py-3.5';
 
+  const phoneEmailFields = (
+    <>
+      <div>
+        <label className="mb-1.5 block text-sm font-semibold text-gray-800">
+          Beneficiary Phone Number <span className="text-red-600">*</span>
+        </label>
+        <input
+          className={fieldClass(errors.phone, brand.inputFocus)}
+          value={phone}
+          onChange={(e) => {
+            setPhone(restrictPhoneInput(e.target.value));
+            clearError('phone');
+          }}
+          onFocus={onFieldFocus}
+          placeholder="enter number here (0598104488)"
+          inputMode="numeric"
+          maxLength={10}
+          autoComplete="tel"
+          enterKeyHint="next"
+        />
+        <FormError message={errors.phone} />
+      </div>
+
+      <div>
+        <label className="mb-1.5 block text-sm font-semibold text-gray-800">
+          Email <span className="text-red-600">*</span>
+        </label>
+        <input
+          className={fieldClass(errors.email, brand.inputFocus)}
+          type="email"
+          inputMode="email"
+          autoComplete="email"
+          value={email}
+          onChange={(e) => {
+            setEmail(e.target.value);
+            clearError('email');
+          }}
+          onFocus={onFieldFocus}
+          onBlur={() => {
+            if (!email.trim()) return;
+            const result = validateEmail(email);
+            if (!result.valid) {
+              setErrors((prev) => ({ ...prev, email: result.error }));
+            }
+          }}
+          placeholder="enter email here"
+          enterKeyHint="done"
+        />
+        <FormError message={errors.email} />
+      </div>
+    </>
+  );
+
+  if (isChecker) {
+    const examOptions = checkerExamOptions || [];
+    return (
+      <div
+        ref={formRef}
+        className="mx-auto max-w-md px-4 py-6 sm:py-8"
+        style={keyboardInset ? { paddingBottom: keyboardInset + 40 } : undefined}
+      >
+        <div className="flex items-center gap-3">
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl border border-gray-200 bg-white p-1.5 sm:h-16 sm:w-16">
+            <img src={WAEC_IMAGE} alt="WAEC" className="h-full w-full object-contain" />
+          </div>
+          <h1 className="text-xl font-bold tracking-tight text-gray-900 sm:text-2xl">
+            {title || 'Result Checker'}
+          </h1>
+        </div>
+
+        <form noValidate onSubmit={handleSubmit} className="mt-7 space-y-6">
+          <div>
+            <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+              Exam type
+            </h2>
+            <div className={`grid gap-3 ${examOptions.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
+              {examOptions.map(({ id, label }) => {
+                const active = checkerExamType === id;
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => onCheckerExamTypeChange?.(id)}
+                    className={`h-11 w-full rounded-lg border text-sm font-bold uppercase tracking-wide transition ${
+                      active
+                        ? 'border-gray-800 bg-white text-gray-900 shadow-sm ring-1 ring-gray-800'
+                        : 'border-gray-300 bg-white text-gray-900 hover:border-gray-400'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+            <FormError message={errors.package} />
+          </div>
+
+          <div>
+            <h2 className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+              Price
+            </h2>
+            <p className="text-2xl font-bold tracking-tight text-gray-900">
+              {selected ? formatCurrency((breakdown?.total ?? selected.price * quantity) || 0) : '—'}
+            </p>
+          </div>
+
+          {phoneEmailFields}
+
+          {showPromoField && (
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">Promo Code (Optional)</label>
+              <div className="flex gap-2">
+                <input
+                  className="input-field"
+                  value={promoCode}
+                  onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
+                  onFocus={onFieldFocus}
+                  placeholder="PROMO123"
+                />
+                <button
+                  type="button"
+                  onClick={handleApplyPromo}
+                  disabled={!isOnline}
+                  className="btn-secondary shrink-0"
+                >
+                  Apply
+                </button>
+              </div>
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={submitting || !isOnline || !selected}
+            className="w-full rounded-lg bg-[#8caf94] py-3.5 text-base font-bold uppercase tracking-wide text-white shadow-sm transition hover:bg-[#7da285] disabled:opacity-50"
+          >
+            {submitting ? 'Processing...' : isOnline ? 'Buy Now' : 'Offline — payment unavailable'}
+          </button>
+        </form>
+      </div>
+    );
+  }
+
   if (isSinglePage) {
     const priceRange = (() => {
       const source = packagesOverride || catalogPackages || [];
@@ -308,7 +453,7 @@ export default function PurchaseForm({
       <div
         ref={formRef}
         className="mx-auto max-w-md px-4 py-6 sm:py-8"
-        style={keyboardInset ? { paddingBottom: keyboardInset + 32 } : undefined}
+        style={keyboardInset ? { paddingBottom: keyboardInset + 40 } : undefined}
       >
         {priceRange && (
           <p className="text-sm font-medium text-gray-500">{priceRange}</p>
@@ -342,52 +487,7 @@ export default function PurchaseForm({
             )}
           </div>
 
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-gray-900">
-              Beneficiary Phone Number <span className="text-red-600">*</span>
-            </label>
-            <input
-              className={fieldClass(errors.phone, brand.inputFocus)}
-              value={phone}
-              onChange={(e) => {
-                setPhone(restrictPhoneInput(e.target.value));
-                clearError('phone');
-              }}
-              onFocus={onFieldFocus}
-              placeholder="enter number here"
-              inputMode="numeric"
-              maxLength={10}
-              autoComplete="tel"
-            />
-            <FormError message={errors.phone} />
-          </div>
-
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-gray-900">
-              Email <span className="text-red-600">*</span>
-            </label>
-            <input
-              className={fieldClass(errors.email, brand.inputFocus)}
-              type="text"
-              inputMode="email"
-              autoComplete="email"
-              value={email}
-              onChange={(e) => {
-                setEmail(e.target.value);
-                clearError('email');
-              }}
-              onFocus={onFieldFocus}
-              onBlur={() => {
-                if (!email.trim()) return;
-                const result = validateEmail(email);
-                if (!result.valid) {
-                  setErrors((prev) => ({ ...prev, email: result.error }));
-                }
-              }}
-              placeholder="enter email here"
-            />
-            <FormError message={errors.email} />
-          </div>
+          {phoneEmailFields}
 
           {showPromoField && (
             <div>
@@ -416,58 +516,13 @@ export default function PurchaseForm({
             {submitting ? 'Processing...' : isOnline ? 'BUY' : 'Offline — payment unavailable'}
           </button>
         </form>
-
       </div>
     );
   }
 
   const detailsFields = (
     <div className="space-y-4">
-      <div>
-        <label className="mb-1.5 block text-sm font-medium text-gray-900">
-          Beneficiary Phone Number <span className="text-red-600">*</span>
-        </label>
-        <input
-          className={fieldClass(errors.phone, brand.inputFocus)}
-          value={phone}
-          onChange={(e) => {
-            setPhone(restrictPhoneInput(e.target.value));
-            clearError('phone');
-          }}
-          onFocus={onFieldFocus}
-          placeholder="enter number here"
-          inputMode="numeric"
-          maxLength={10}
-          autoComplete="tel"
-        />
-        <FormError message={errors.phone} />
-      </div>
-      <div>
-        <label className="mb-1.5 block text-sm font-medium text-gray-900">
-          Email <span className="text-red-600">*</span>
-        </label>
-        <input
-          className={fieldClass(errors.email, brand.inputFocus)}
-          type="text"
-          inputMode="email"
-          autoComplete="email"
-          value={email}
-          onChange={(e) => {
-            setEmail(e.target.value);
-            clearError('email');
-          }}
-          onFocus={onFieldFocus}
-          onBlur={() => {
-            if (!email.trim()) return;
-            const result = validateEmail(email);
-            if (!result.valid) {
-              setErrors((prev) => ({ ...prev, email: result.error }));
-            }
-          }}
-          placeholder="enter email here"
-        />
-        <FormError message={errors.email} />
-      </div>
+      {phoneEmailFields}
       {showPromoField && (
         <div>
           <label className="mb-1 block text-sm font-medium">Promo Code (Optional)</label>
@@ -497,23 +552,12 @@ export default function PurchaseForm({
     <div
       ref={formRef}
       className="mx-auto max-w-lg px-4 py-8 sm:py-10"
-      style={keyboardInset ? { paddingBottom: keyboardInset + 32 } : undefined}
+      style={keyboardInset ? { paddingBottom: keyboardInset + 40 } : undefined}
     >
       <div className="flex items-center gap-3 sm:gap-4">
-        {isChecker ? (
-          <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl bg-white p-1.5 shadow ring-1 ring-gray-200 sm:h-20 sm:w-20">
-            <img src={WAEC_IMAGE} alt="WAEC" className="h-full w-full object-contain" />
-          </div>
-        ) : (
-          <PackageImage category={category} title={title} size="banner" />
-        )}
+        <PackageImage category={category} title={title} size="banner" />
         <div className="min-w-0">
           <h1 className="text-xl font-bold tracking-tight text-gray-900 sm:text-2xl">{title}</h1>
-          {step === 'select' && !showAfaForm && (
-            <p className="mt-1 text-sm text-gray-600">
-              {isChecker ? 'Select your exam type to continue.' : 'Select a package to continue.'}
-            </p>
-          )}
           {isCheckout && (
             <p className="mt-1 text-sm text-gray-600">Enter your details and proceed to payment.</p>
           )}
@@ -537,73 +581,6 @@ export default function PurchaseForm({
       </AnimatePresence>
 
       <AnimatePresence mode="wait">
-        {step === 'select' && !showAfaForm && (
-          <motion.div
-            key="select-step"
-            initial={{ opacity: 0, x: -16 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -16 }}
-            transition={{ duration: 0.25, ease: 'easeOut' }}
-            className="mt-6"
-          >
-            <div className="flex flex-col gap-5 rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
-              <h2 className="font-bold text-gray-900">Select Exam Type</h2>
-              {isChecker && (
-                <div className={`grid gap-3 ${checkerExamOptions.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
-                  {checkerExamOptions.map(({ id, label }) => (
-                    <button
-                      key={id}
-                      type="button"
-                      onClick={() => onCheckerExamTypeChange(id)}
-                      className={`pkg-box h-11 w-full text-sm ${
-                        checkerExamType === id ? 'pkg-box-active border-blue-600 bg-blue-600 !text-white' : ''
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              )}
-              {(!isChecker || checkerExamType) && (
-                <PackageSelector
-                  category={category}
-                  selected={selected}
-                  onSelect={handleSelectPackage}
-                  summaryOnly={isChecker}
-                  packagesOverride={packagesOverride}
-                />
-              )}
-              {isChecker && selected && (
-                <div>
-                  <h3 className="mb-3 text-sm font-bold text-gray-900">How many checkers? (1–5)</h3>
-                  <div className="grid grid-cols-5 gap-2">
-                    {[1, 2, 3, 4, 5].map((n) => (
-                      <button
-                        key={n}
-                        type="button"
-                        onClick={() => setQuantity(n)}
-                        className={`pkg-box ${quantity === n ? brand.boxActive || 'pkg-box-active' : brand.boxHover || ''}`}
-                      >
-                        {n}
-                      </button>
-                    ))}
-                  </div>
-                  <p className="mt-3 text-sm text-gray-600">
-                    Total:{' '}
-                    <span className={`font-bold ${brand.accent}`}>
-                      {formatCurrency(selected.price * quantity)}
-                    </span>
-                  </p>
-                  <button type="button" onClick={handleContinueChecker} className="btn-primary mt-4 w-full">
-                    Continue to payment
-                  </button>
-                </div>
-              )}
-              {errors.package && <FormError message={errors.package} />}
-            </div>
-          </motion.div>
-        )}
-
         {showAfaForm && afaLoading && !selected && (
           <p className="mt-6 text-sm text-gray-500">Loading AFA registration...</p>
         )}
@@ -628,13 +605,7 @@ export default function PurchaseForm({
             transition={{ duration: 0.25, ease: 'easeOut' }}
             className="mt-6 flex flex-col gap-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:gap-5 sm:p-5"
           >
-            {!showAfaForm && (
-              <button type="button" onClick={handleGoBack} className="btn-back self-start">
-                {isChecker ? 'Change selection' : 'Change package'}
-              </button>
-            )}
-
-            <SelectedPackageSummary selected={selected} brand={brand} quantity={isChecker ? quantity : 1} />
+            <SelectedPackageSummary selected={selected} brand={brand} quantity={1} />
 
             {showAfaForm && (
               <div className="flex flex-col gap-3 border-t border-gray-100 pt-4">
