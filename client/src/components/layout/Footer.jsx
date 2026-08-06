@@ -7,7 +7,7 @@ export default function Footer() {
         href={RESELLER_URL}
         target="_blank"
         rel="noopener noreferrer"
-        className="block w-full bg-[#143424] px-5 py-8 text-left transition-opacity hover:opacity-95 active:opacity-90 sm:px-8 sm:py-10"
+        className="block w-full bg-blue-600 px-5 py-8 text-left transition-opacity hover:opacity-95 active:opacity-90 sm:px-8 sm:py-10"
       >
         <div className="mx-auto max-w-7xl">
           <p className="text-xl font-bold leading-snug text-white sm:text-2xl">
