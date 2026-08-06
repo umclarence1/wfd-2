@@ -11,12 +11,12 @@ export default function Footer() {
       >
         <div className="mx-auto max-w-7xl">
           <p className="text-xl font-bold leading-snug text-white sm:text-2xl">
-            Want to sell data and earn?
+            Want to sell data and results checkers and earn?
           </p>
           <p className="mt-2 max-w-xl text-sm leading-relaxed text-white/95 sm:text-base">
             Create your own reseller store, set your prices, and share your link with customers.
           </p>
-          <span className="mt-5 inline-flex rounded-md bg-[#c89624] px-5 py-2.5 text-sm font-medium text-black sm:mt-6 sm:px-6 sm:py-3 sm:text-base">
+          <span className="mt-5 inline-flex rounded-md bg-[#FFFF00] px-5 py-2.5 text-sm font-medium text-black sm:mt-6 sm:px-6 sm:py-3 sm:text-base">
             Become a Reseller
           </span>
         </div>
