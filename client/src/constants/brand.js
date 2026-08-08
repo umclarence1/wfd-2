@@ -9,7 +9,7 @@ export const PWA_BACKGROUND_COLOR = '#ffffff';
 
 export const WHATSAPP_PHONE = '233595399837';
 export const WHATSAPP_URL = `https://wa.me/${WHATSAPP_PHONE}`;
-export const WHATSAPP_GROUP_URL = 'https://chat.whatsapp.com/KFJvUpZIEaxHWeOLbfgTR0';
+export const WHATSAPP_GROUP_URL = 'https://whatsapp.com/channel/0029Vb7PFpnAYlUSuuF2Mo3E';
 export const WHATSAPP_WEB_DEV_URL = `https://wa.me/${WHATSAPP_PHONE}?text=${encodeURIComponent(
   "Hello, I'd like to book a website development service for my business."
 )}`;

@@ -127,7 +127,7 @@
   }
   .whatsapp-float {
     animation: whatsapp-blink 1.2s ease-in-out infinite;
-    box-shadow: 0 4px 20px rgba(37, 211, 102, 0.55);
+    box-shadow: 0 6px 28px rgba(37, 211, 102, 0.6);
     @apply transition-transform duration-200 hover:scale-110 hover:bg-[#20bd5a];
   }
   html.keyboard-open .whatsapp-float {
