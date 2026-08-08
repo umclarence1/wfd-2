@@ -22,6 +22,7 @@ import { QUEUE_REASONS } from '../utils/providerQueue.js';
 import {
   sendOrderConfirmationEmail,
 } from '../services/emailService.js';
+import { publishOrderUpdate } from './orderWebhookService.js';
 
 export const getFreshPackage = async (packageId) => {
   const pkg = await Package.findById(packageId);
@@ -188,6 +189,9 @@ export const fulfillOrder = async (orderId, io) => {
       order.serviceType === 'data_bundle' &&
       String(order.category || '').toUpperCase() === 'MTN';
 
+    const previousPaymentStatus = order.paymentStatus;
+    const previousDeliveryStatus = order.deliveryStatus;
+
     // MTN data stays pending until delivered/failed so the 1h30m notice can fire.
     order.deliveryStatus = isMtnData ? 'pending' : 'processing';
     await order.save({ session });
@@ -198,6 +202,12 @@ export const fulfillOrder = async (orderId, io) => {
       order.failureReason = 'Package no longer available';
       await order.save({ session });
       await session.commitTransaction();
+      await publishOrderUpdate(order, {
+        io,
+        trigger: 'fulfillment.failed',
+        previousPaymentStatus,
+        previousDeliveryStatus,
+      });
       return order;
     }
     if (pkg.serviceType !== 'result_checker' && !pkg.isAvailable) {
@@ -205,6 +215,12 @@ export const fulfillOrder = async (orderId, io) => {
       order.failureReason = 'Package no longer available';
       await order.save({ session });
       await session.commitTransaction();
+      await publishOrderUpdate(order, {
+        io,
+        trigger: 'fulfillment.failed',
+        previousPaymentStatus,
+        previousDeliveryStatus,
+      });
       return order;
     }
 
@@ -242,7 +258,12 @@ export const fulfillOrder = async (orderId, io) => {
           order.failureReason = result.message || 'Queued for TopDealsGH retry.';
           await order.save({ session });
           await session.commitTransaction();
-          if (io) io.emit('order:updated', { reference: order.reference, deliveryStatus: order.deliveryStatus });
+          await publishOrderUpdate(order, {
+            io,
+            trigger: 'fulfillment.queued',
+            previousPaymentStatus,
+            previousDeliveryStatus,
+          });
           return order;
         }
 
@@ -312,17 +333,28 @@ export const fulfillOrder = async (orderId, io) => {
       }
     }
 
-    if (io) io.emit('order:updated', { reference: order.reference, deliveryStatus: order.deliveryStatus });
     if (io) io.emit('package:updated', { packageId: pkg._id.toString() });
+    await publishOrderUpdate(order, {
+      io,
+      trigger: 'fulfillment',
+      previousPaymentStatus,
+      previousDeliveryStatus,
+    });
 
     return order;
   } catch (err) {
     await session.abortTransaction();
     const order = await Order.findById(orderId);
     if (order) {
+      const previousDeliveryStatus = order.deliveryStatus;
       order.deliveryStatus = 'failed';
       order.failureReason = 'We could not complete your order. Please try again or contact support.';
       await order.save();
+      await publishOrderUpdate(order, {
+        io,
+        trigger: 'fulfillment.error',
+        previousDeliveryStatus,
+      });
     }
     throw err;
   } finally {
@@ -351,6 +383,15 @@ export const processFreeOrder = async (order, promoResult, user, io) => {
     }
 
     await session.commitTransaction();
+
+    await publishOrderUpdate(order, {
+      io,
+      trigger: 'payment.paid',
+      event: 'order.payment.paid',
+      previousPaymentStatus: 'pending',
+      previousDeliveryStatus: order.deliveryStatus,
+    });
+
     await fulfillOrder(order._id, io);
     return order;
   } catch (err) {

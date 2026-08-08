@@ -62,6 +62,7 @@ export const env = {
     secretKey: process.env.TOPDEALSGH_SECRET_KEY || '',
   },
   fulfillmentWebhookUrl: process.env.FULFILLMENT_WEBHOOK_URL || '',
+  fulfillmentWebhookSecret: process.env.FULFILLMENT_WEBHOOK_SECRET || '',
   encryptionKey: requireSecret('ENCRYPTION_KEY', 'dev-encryption-key-32-chars!!'),
   paystackChargeRate: 0.02,
   adminOtpEmail: process.env.ADMIN_OTP_EMAIL?.trim().toLowerCase() || '',

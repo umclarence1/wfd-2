@@ -30,6 +30,7 @@ import {
   getQueuedOrders,
 } from '../services/apiProviderService.js';
 import { retryQueuedProviderOrders } from '../services/orderRetryService.js';
+import { publishOrderUpdate, testOrderStatusWebhook } from '../services/orderWebhookService.js';
 import { escapeRegex } from '../utils/escapeRegex.js';
 import { isSafeHttpUrl } from '../utils/providerUrl.js';
 import { encrypt } from '../utils/encryption.js';
@@ -265,10 +266,11 @@ router.patch('/orders/bulk-status', requirePermission('orders'), validateBody(or
   if (deliveryStatus) updates.deliveryStatus = deliveryStatus;
   if (paymentStatus) updates.paymentStatus = paymentStatus;
 
-  const before = deliveryStatus === 'verification'
-    ? await Order.find({ _id: { $in: orderIds } }).select('deliveryStatus')
-    : [];
-  const beforeMap = new Map(before.map((o) => [String(o._id), o.deliveryStatus]));
+  const before = await Order.find({ _id: { $in: orderIds } }).select(
+    'deliveryStatus paymentStatus reference'
+  );
+  const beforeDeliveryMap = new Map(before.map((o) => [String(o._id), o.deliveryStatus]));
+  const beforePaymentMap = new Map(before.map((o) => [String(o._id), o.paymentStatus]));
 
   const result = await Order.updateMany({ _id: { $in: orderIds } }, updates);
   const orders = await Order.find({ _id: { $in: orderIds } });
@@ -276,17 +278,18 @@ router.patch('/orders/bulk-status', requirePermission('orders'), validateBody(or
   for (const order of orders) {
     if (deliveryStatus === 'verification') {
       try {
-        const previous = beforeMap.get(String(order._id));
+        const previous = beforeDeliveryMap.get(String(order._id));
         const emailed = await maybeSendVerificationEmail(order, previous, { force: true });
         if (emailed) await order.save();
       } catch (emailErr) {
         console.error('[VERIFICATION_EMAIL] Bulk update email failed:', emailErr.message);
       }
     }
-    req.app.get('io')?.emit('order:updated', {
-      reference: order.reference,
-      deliveryStatus: order.deliveryStatus,
-      paymentStatus: order.paymentStatus,
+    await publishOrderUpdate(order, {
+      io: req.app.get('io'),
+      trigger: 'admin.bulk',
+      previousDeliveryStatus: beforeDeliveryMap.get(String(order._id)),
+      previousPaymentStatus: beforePaymentMap.get(String(order._id)),
     });
   }
 
@@ -310,6 +313,7 @@ router.patch('/orders/:id/status', requirePermission('orders'), validateBody(ord
   const existing = await Order.findById(req.params.id);
   if (!existing) throw new AppError('Order not found.', 404);
   const previousDelivery = existing.deliveryStatus;
+  const previousPayment = existing.paymentStatus;
 
   const order = await Order.findByIdAndUpdate(req.params.id, updates, {
     new: true,
@@ -327,10 +331,11 @@ router.patch('/orders/:id/status', requirePermission('orders'), validateBody(ord
     }
   }
 
-  req.app.get('io')?.emit('order:updated', {
-    reference: order.reference,
-    deliveryStatus: order.deliveryStatus,
-    paymentStatus: order.paymentStatus,
+  await publishOrderUpdate(order, {
+    io: req.app.get('io'),
+    trigger: 'admin',
+    previousDeliveryStatus: previousDelivery,
+    previousPaymentStatus: previousPayment,
   });
   res.json({ success: true, order });
 }));
@@ -582,6 +587,19 @@ router.post('/api-providers/retry-queued', requirePermission('api_providers'), a
 router.get('/api-providers/queued', requirePermission('api_providers'), asyncHandler(async (_req, res) => {
   const orders = await getQueuedOrders();
   res.json({ success: true, orders });
+}));
+
+router.post('/api-providers/test-order-webhook', requirePermission('api_providers'), asyncHandler(async (_req, res) => {
+  const result = await testOrderStatusWebhook();
+  if (!result.sent) {
+    throw new AppError(
+      result.reason === 'no_webhook_url'
+        ? 'Set a fulfillment webhook URL first (Admin → API Providers).'
+        : `Webhook test failed: ${result.reason || 'unknown error'}.`,
+      result.reason === 'no_webhook_url' ? 400 : 502
+    );
+  }
+  res.json({ success: true, message: 'Test webhook sent.', ...result });
 }));
 
 // Audit logs

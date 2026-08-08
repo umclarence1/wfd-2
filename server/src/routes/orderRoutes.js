@@ -19,6 +19,7 @@ import {
 } from '../services/orderService.js';
 import { initializePayment, getPublicKey, verifyPayment } from '../services/paystackService.js';
 import { markOrderPaidFromPaystack } from '../services/paymentProcessingService.js';
+import { publishOrderUpdate } from '../services/orderWebhookService.js';
 import { createAndSendOTP, verifyOTP } from '../services/authService.js';
 import { validateEmail } from '../utils/validation.js';
 import { sanitizeOrderForCustomer } from '../utils/customerSafe.js';
@@ -50,6 +51,13 @@ router.post(
     const idempotencyKey = req.headers['idempotency-key']?.slice(0, 64) || null;
     const validated = await validateOrderInput(req.body, req.user);
     const order = await createOrder({ ...validated, afaDetails: req.body.afaDetails }, req.user, idempotencyKey);
+
+    await publishOrderUpdate(order, {
+      io: req.app.get('io'),
+      trigger: 'order.created',
+      event: 'order.created',
+      force: true,
+    });
 
     if (validated.pricing.isFreeOrder === true) {
       await processFreeOrder(order, validated.promoResult, req.user, req.app.get('io'));
@@ -121,8 +129,15 @@ router.get(
     const payment = await verifyPayment(req.params.reference);
 
     if (payment.status !== 'success') {
+      const previousPaymentStatus = order.paymentStatus;
       order.paymentStatus = 'failed';
       await order.save();
+      await publishOrderUpdate(order, {
+        io: req.app.get('io'),
+        trigger: 'payment.failed',
+        event: 'order.payment.failed',
+        previousPaymentStatus,
+      });
       throw new AppError('Payment verification failed.', 400);
     }
 

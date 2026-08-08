@@ -5,6 +5,7 @@ import { retryQueuedProviderOrders } from './orderRetryService.js';
 import { redeemPromoCodeAtomic } from './promoService.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { logSecurityEvent } from './securityLogger.js';
+import { publishOrderUpdate } from './orderWebhookService.js';
 
 export const markOrderPaidFromPaystack = async ({
   paymentReference,
@@ -31,17 +32,31 @@ export const markOrderPaidFromPaystack = async ({
   }
 
   if (amountPaid == null || !Number.isFinite(Number(amountPaid))) {
+    const previousPaymentStatus = order.paymentStatus;
     order.paymentStatus = 'failed';
     order.failureReason = 'Payment amount missing';
     await order.save();
+    await publishOrderUpdate(order, {
+      io,
+      trigger: 'payment.failed',
+      event: 'order.payment.failed',
+      previousPaymentStatus,
+    });
     logSecurityEvent('payment_amount_missing', { paymentReference });
     throw new AppError('Payment amount missing.', 400);
   }
 
   if (Math.abs(Number(amountPaid) - order.totalAmount) > 0.01) {
+    const previousPaymentStatus = order.paymentStatus;
     order.paymentStatus = 'failed';
     order.failureReason = 'Payment amount mismatch';
     await order.save();
+    await publishOrderUpdate(order, {
+      io,
+      trigger: 'payment.failed',
+      event: 'order.payment.failed',
+      previousPaymentStatus,
+    });
     logSecurityEvent('payment_amount_mismatch', {
       paymentReference,
       expected: order.totalAmount,
@@ -62,6 +77,14 @@ export const markOrderPaidFromPaystack = async ({
       });
     }
   }
+
+  await publishOrderUpdate(order, {
+    io,
+    trigger: 'payment.paid',
+    event: 'order.payment.paid',
+    previousPaymentStatus: 'pending',
+    previousDeliveryStatus: order.deliveryStatus,
+  });
 
   await fulfillOrder(order._id, io);
   retryQueuedProviderOrders(io).catch(() => {});

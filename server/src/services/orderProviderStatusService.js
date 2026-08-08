@@ -4,6 +4,7 @@ import { PROVIDER_DEFINITIONS } from '../config/apiProviders.js';
 import { checkProviderStatus } from './providerService.js';
 import { resolveProviderForCategory } from './apiProviderService.js';
 import { sendNumberVerificationEmail } from './emailService.js';
+import { publishOrderUpdate } from './orderWebhookService.js';
 
 const API_SERVICE_TYPES = new Set(['data_bundle', 'afa_registration']);
 const OPEN_DELIVERY_STATUSES = ['pending', 'processing', 'verification'];
@@ -83,6 +84,7 @@ export const syncOrderProviderStatus = async (orderId, io) => {
 
   let synced = false;
   const previousDelivery = order.deliveryStatus;
+  const previousPayment = order.paymentStatus;
 
   if (mappedDelivery && mappedDelivery !== order.deliveryStatus) {
     const isMtnData =
@@ -124,10 +126,11 @@ export const syncOrderProviderStatus = async (orderId, io) => {
   await order.save();
 
   if (synced || emailed) {
-    io?.emit('order:updated', {
-      reference: order.reference,
-      deliveryStatus: order.deliveryStatus,
-      paymentStatus: order.paymentStatus,
+    await publishOrderUpdate(order, {
+      io,
+      trigger: 'provider.sync',
+      previousPaymentStatus: previousPayment,
+      previousDeliveryStatus: previousDelivery,
     });
   }
 

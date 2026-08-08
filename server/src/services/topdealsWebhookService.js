@@ -5,6 +5,7 @@ import {
 } from './topdealsWebhookAuth.js';
 import { maybeSendVerificationEmail } from './orderProviderStatusService.js';
 import { PROVIDER_IDS } from '../config/apiProviders.js';
+import { publishOrderUpdate } from './orderWebhookService.js';
 
 const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -67,6 +68,7 @@ export const applyTopDealsWebhook = async (rawPayload, io) => {
   }
 
   const previousDelivery = order.deliveryStatus;
+  const previousPayment = order.paymentStatus;
   let synced = false;
 
   const isMtnData =
@@ -141,10 +143,11 @@ export const applyTopDealsWebhook = async (rawPayload, io) => {
   });
 
   if (synced || emailed) {
-    io?.emit('order:updated', {
-      reference: order.reference,
-      deliveryStatus: order.deliveryStatus,
-      paymentStatus: order.paymentStatus,
+    await publishOrderUpdate(order, {
+      io,
+      trigger: 'provider.webhook',
+      previousPaymentStatus: previousPayment,
+      previousDeliveryStatus: previousDelivery,
     });
   }
 

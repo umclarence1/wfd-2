@@ -115,6 +115,12 @@ export default function AdminApiProvidersPage() {
     onError: (err) => toast(err.response?.data?.message || 'Test failed.', 'error'),
   });
 
+  const testOrderWebhook = useMutation({
+    mutationFn: () => api.post('/admin/api-providers/test-order-webhook').then((r) => r.data),
+    onSuccess: (data) => toast(data.message || 'Test webhook sent.', 'success'),
+    onError: (err) => toast(err.response?.data?.message || 'Webhook test failed.', 'error'),
+  });
+
   const fetchTopDealsGhBalance = useMutation({
     mutationFn: () => api.get('/admin/api-providers/topdealsgh/balance').then((r) => r.data),
     onSuccess: (data) => {
@@ -433,13 +439,31 @@ export default function AdminApiProvidersPage() {
         </div>
 
         <div>
-          <label className="mb-1.5 block text-sm font-semibold text-slate-800">Fulfillment webhook URL (optional)</label>
+          <label className="mb-1.5 block text-sm font-semibold text-slate-800">
+            Order status webhook URL (automatic)
+          </label>
           <input
             className="input-field"
-            placeholder="https://your-backend.com/api/webhooks/fulfillment"
+            placeholder="https://your-backend.com/api/webhooks/order-status"
             value={form.fulfillmentWebhookUrl}
             onChange={(e) => setForm({ ...form, fulfillmentWebhookUrl: e.target.value })}
           />
+          <p className="mt-2 text-xs leading-relaxed text-slate-500">
+            WDS POSTs JSON to this URL whenever payment or delivery status changes (paid, processing,
+            delivered, failed, etc.). Optional: set <code className="text-slate-700">FULFILLMENT_WEBHOOK_SECRET</code>{' '}
+            on the server and verify the <code className="text-slate-700">X-WDS-Signature</code> header
+            (HMAC-SHA256 hex of the raw body).
+          </p>
+          {form.fulfillmentWebhookUrl && (
+            <button
+              type="button"
+              onClick={() => testOrderWebhook.mutate()}
+              disabled={testOrderWebhook.isPending}
+              className="btn-secondary mt-3 !py-2 text-sm"
+            >
+              {testOrderWebhook.isPending ? 'Sending test...' : 'Send test webhook'}
+            </button>
+          )}
         </div>
 
         <button type="button" onClick={handleSave} disabled={saveConfig.isPending} className="btn-primary">
@@ -458,7 +482,7 @@ export default function AdminApiProvidersPage() {
           {form.fulfillmentWebhookUrl && (
             <>
               <br />
-              Webhook: {form.fulfillmentWebhookUrl}
+              Order status webhook: {form.fulfillmentWebhookUrl}
             </>
           )}
         </p>
