@@ -50,7 +50,7 @@ router.post(
   asyncHandler(async (req, res) => {
     const idempotencyKey = req.headers['idempotency-key']?.slice(0, 64) || null;
     const validated = await validateOrderInput(req.body, req.user);
-    const order = await createOrder({ ...validated, afaDetails: req.body.afaDetails }, req.user, idempotencyKey);
+    const order = await createOrder(validated, req.user, idempotencyKey);
 
     await publishOrderUpdate(order, {
       io: req.app.get('io'),

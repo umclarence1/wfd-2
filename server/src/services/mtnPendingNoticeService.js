@@ -1,6 +1,5 @@
 import Order from '../models/Order.js';
 import { sendNumberVerificationEmail } from './emailService.js';
-import { sendMtnVerificationSMS } from './smsService.js';
 
 /** MTN data must sit in pending this long before verification notice. */
 export const MTN_PENDING_NOTICE_MS = 90 * 60 * 1000;
@@ -10,7 +9,7 @@ const isMtnDataOrder = (order) =>
   String(order.category || '').toUpperCase() === 'MTN';
 
 /**
- * After 1h30m still pending: send long MTN verification email + short SMS once.
+ * After 1h30m still pending: send MTN verification email once.
  */
 export const notifyStaleMtnPendingOrders = async (io, { limit = 40 } = {}) => {
   const cutoff = new Date(Date.now() - MTN_PENDING_NOTICE_MS);
@@ -35,25 +34,18 @@ export const notifyStaleMtnPendingOrders = async (io, { limit = 40 } = {}) => {
     .sort({ createdAt: 1 })
     .limit(limit);
 
-  const summary = { checked: orders.length, emailed: 0, sms: 0, errors: 0 };
+  const summary = { checked: orders.length, emailed: 0, errors: 0 };
 
   for (const order of orders) {
     if (!isMtnDataOrder(order)) continue;
 
     try {
       let emailed = false;
-      let smsOk = false;
 
       if (order.email) {
         await sendNumberVerificationEmail(order.email, order);
         emailed = true;
         summary.emailed += 1;
-      }
-
-      if (order.phone) {
-        const smsResult = await sendMtnVerificationSMS(order.phone, order);
-        smsOk = smsResult?.success !== false;
-        if (smsOk) summary.sms += 1;
       }
 
       order.metadata = {
@@ -62,9 +54,6 @@ export const notifyStaleMtnPendingOrders = async (io, { limit = 40 } = {}) => {
         verificationEmailSentAt: emailed
           ? new Date().toISOString()
           : order.metadata?.verificationEmailSentAt,
-        mtnVerificationSmsSentAt: smsOk
-          ? new Date().toISOString()
-          : order.metadata?.mtnVerificationSmsSentAt,
       };
       await order.save();
 

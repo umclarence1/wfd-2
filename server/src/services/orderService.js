@@ -3,7 +3,7 @@ import Order from '../models/Order.js';
 import Package from '../models/Package.js';
 import { getSiteSettings } from './siteSettingsService.js';
 import { generateReference } from '../utils/reference.js';
-import { validateNetworkPhone, validateGhanaCard, validateEmail } from '../utils/validation.js';
+import { validateNetworkPhone, validateEmail } from '../utils/validation.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { calculatePaystackCharge, calculateTotal } from '../services/paystackService.js';
 import { validatePromoCode, redeemPromoCode, calculatePromoPrice } from '../services/promoService.js';
@@ -21,7 +21,9 @@ import Checker from '../models/Checker.js';
 import { QUEUE_REASONS } from '../utils/providerQueue.js';
 import {
   sendOrderConfirmationEmail,
+  sendCheckerDeliveryEmail,
 } from '../services/emailService.js';
+import { sendCheckerDeliverySMS } from './smsService.js';
 import { publishOrderUpdate } from './orderWebhookService.js';
 
 export const getFreshPackage = async (packageId) => {
@@ -40,7 +42,7 @@ export const getFreshPackage = async (packageId) => {
 };
 
 export const validateOrderInput = async (body, user) => {
-  const { packageId, phone, email, promoCode, afaDetails, quantity: rawQty } = body;
+  const { packageId, phone, email, promoCode, quantity: rawQty } = body;
   const quantity = Math.max(1, Math.min(5, Number(rawQty) || 1));
 
   const emailResult = validateEmail(email);
@@ -63,15 +65,6 @@ export const validateOrderInput = async (body, user) => {
 
   const phoneResult = validateNetworkPhone(phone, pkg.category);
   if (!phoneResult.valid) throw new AppError(phoneResult.error, 400);
-
-  if (pkg.serviceType === 'afa_registration') {
-    if (!afaDetails?.fullName || afaDetails.fullName.trim().length < 3) {
-      throw new AppError('Full name must be at least 3 characters.', 400);
-    }
-    const cardResult = validateGhanaCard(afaDetails.ghanaCard);
-    if (!cardResult.valid) throw new AppError(cardResult.error, 400);
-    if (!afaDetails.location?.trim()) throw new AppError('Location is required.', 400);
-  }
 
   const unitPrice = pkg.price;
 
@@ -122,7 +115,6 @@ export const createOrder = async (validated, user, idempotencyKey) => {
     pricing,
     paystackCharge,
     totalAmount,
-    afaDetails,
     quantity = 1,
   } = validated;
 
@@ -153,7 +145,6 @@ export const createOrder = async (validated, user, idempotencyKey) => {
       isFreeOrder: pricing.isFreeOrder,
       paymentReference,
       idempotencyKey: idempotencyKey || undefined,
-      afaDetails: pkg.serviceType === 'afa_registration' ? afaDetails : undefined,
     });
     return order;
   } catch (err) {
@@ -298,11 +289,26 @@ export const fulfillOrder = async (orderId, io) => {
         queuedForProvider: false,
         providerId: PROVIDER_IDS.TOPDEALSGH,
         source: 'topdealsgh_agent_api',
-        // TopDealsGH delivers serial/PIN to the customer; we do not SMS/email checkers.
       };
 
       await order.save({ session });
       await session.commitTransaction();
+
+      const checkerPayload = {
+        checkerType: pkg.checkerType,
+        checkers: purchased.map((c) => ({
+          serialNumber: c.serialNumber,
+          pin: c.pin,
+        })),
+        serialNumber: purchased[0].serialNumber,
+        pin: purchased[0].pin,
+        orderReference: order.reference,
+      };
+
+      await Promise.allSettled([
+        sendCheckerDeliveryEmail(order.email, checkerPayload),
+        sendCheckerDeliverySMS(order.phone, checkerPayload),
+      ]);
     } else if (order.serviceType === 'data_bundle') {
       providerResponse = await submitDataBundleOrder(order, pkg);
       const isMtn =
@@ -315,7 +321,7 @@ export const fulfillOrder = async (orderId, io) => {
       await order.save({ session });
       await session.commitTransaction();
 
-      // Confirmation email only — no purchase SMS (SMS is costly per recipient).
+      // Confirmation email only.
       if (shouldNotify) {
         await Promise.allSettled([sendOrderConfirmationEmail(order.email, order)]);
       }

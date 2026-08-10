@@ -1,14 +1,4 @@
-import axios from 'axios';
 import { env } from '../config/env.js';
-
-const normalizeGhanaPhone = (phone) => {
-  const digits = String(phone || '').replace(/\D/g, '');
-  if (!digits) return '';
-  if (digits.startsWith('233') && digits.length >= 12) return digits;
-  if (digits.startsWith('0') && digits.length === 10) return `233${digits.slice(1)}`;
-  if (digits.length === 9) return `233${digits}`;
-  return digits;
-};
 
 export const sendSMS = async (phone, message) => {
   if (!env.arkesel.apiKey) {
@@ -19,75 +9,53 @@ export const sendSMS = async (phone, message) => {
     return { success: true, mocked: true };
   }
 
-  const normalized = normalizeGhanaPhone(phone);
-  if (!normalized) {
-    return { success: false, error: 'Invalid phone number.' };
+  const normalized = String(phone || '').replace(/\D/g, '');
+  if (!/^0?233\d{9}$|^0\d{9}$/.test(normalized)) {
+    return { success: false, error: 'Invalid phone number for SMS.' };
   }
 
+  const to = normalized.startsWith('233') ? normalized : `233${normalized.replace(/^0/, '')}`;
+
   try {
-    const response = await axios.post(
-      'https://sms.arkesel.com/api/v2/sms/send',
-      {
-        sender: env.arkesel.senderId,
-        message,
-        recipients: [normalized],
+    const response = await fetch('https://sms.arkesel.com/api/v2/sms/send', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'api-key': env.arkesel.apiKey,
       },
-      {
-        headers: {
-          'api-key': env.arkesel.apiKey,
-          'Content-Type': 'application/json',
-        },
-        timeout: 15000,
-      }
-    );
+      body: JSON.stringify({
+        sender: env.arkesel.senderId,
+        message: String(message || '').slice(0, 160),
+        recipients: [to],
+      }),
+    });
 
-    const data = response.data || {};
-    const ok =
-      data.status === 'success' ||
-      data.success === true ||
-      String(data.code || '') === 'ok' ||
-      response.status === 200;
-
-    if (!ok) {
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.status === 'error') {
       console.error('[SMS] Arkesel response:', data);
-      return { success: false, mocked: false, ...data };
+      return { success: false, error: data.message || 'SMS send failed.' };
     }
 
-    return { success: true, mocked: false, ...data };
+    return { success: true, data };
   } catch (err) {
     console.error('[SMS] Arkesel send failed:', err.response?.data || err.message);
-    return {
-      success: false,
-      mocked: false,
-      error: err.response?.data?.message || err.message,
-    };
+    return { success: false, error: err.message };
   }
 };
 
+/** Send result checker serial/PIN to the beneficiary phone. */
 export const sendCheckerDeliverySMS = async (phone, { serialNumber, pin, checkers }) => {
   const list = Array.isArray(checkers) && checkers.length
     ? checkers
     : [{ serialNumber, pin }];
 
-  const credentials = list
-    .map((item) => `Serial: ${item.serialNumber}\nPIN: ${item.pin}`)
-    .join('\n\n');
+  const lines = list
+    .map((item, index) => {
+      const prefix = list.length > 1 ? `#${index + 1} ` : '';
+      return `${prefix}Serial: ${item.serialNumber} PIN: ${item.pin}`;
+    })
+    .join(' | ');
 
-  const message = `${credentials}
-Check your results using this link https://ghana.waecdirect.org/
-Thank you for your purchase!`;
-
-  return sendSMS(phone, message);
-};
-
-export const sendOrderConfirmationSMS = async (phone, order) => {
-  const message = `Order ${order.reference} confirmed. ${order.packageName} - GH₵${order.totalAmount.toFixed(2)}. Status: ${order.deliveryStatus}. WDS`;
-  return sendSMS(phone, message);
-};
-
-/** Short per-recipient SMS for MTN number verification wait. */
-export const sendMtnVerificationSMS = async (phone, order) => {
-  const number = order.phone || phone;
-  const message = `MTN verification for ${number} is in progress. Takes 24-144 hrs. Ref ${order.reference}. WDS`;
+  const message = `WAEC Result Checker — ${lines}. Check results: ghana.waecdirect.org`;
   return sendSMS(phone, message);
 };

@@ -34,10 +34,6 @@ export const env = {
     from: process.env.EMAIL_FROM?.trim() || 'Wilberforce Data Service <noreply@wds.com>',
   },
   resendApiKey: process.env.RESEND_API_KEY?.trim() || '',
-  mnotify: {
-    apiKey: process.env.MNOTIFY_API_KEY,
-    senderId: process.env.MNOTIFY_SENDER_ID || 'WDS',
-  },
   arkesel: {
     apiKey: process.env.ARKESEL_API_KEY?.trim() || '',
     senderId: process.env.ARKESEL_SENDER_ID?.trim() || 'WDS',
@@ -66,7 +62,6 @@ export const env = {
   encryptionKey: requireSecret('ENCRYPTION_KEY', 'dev-encryption-key-32-chars!!'),
   paystackChargeRate: 0.02,
   adminOtpEmail: process.env.ADMIN_OTP_EMAIL?.trim().toLowerCase() || '',
-  adminOtpPhone: process.env.ADMIN_OTP_PHONE?.trim() || '',
   siteSettingsKey:
     process.env.SITE_SETTINGS_KEY?.trim() ||
     (() => {
