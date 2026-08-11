@@ -22,7 +22,6 @@ export default function AdminLoginPage() {
   const [otp, setOtp] = useState('');
   const [pendingToken, setPendingToken] = useState('');
   const [otpSentTo, setOtpSentTo] = useState('');
-  const [deliveryMethod, setDeliveryMethod] = useState('email');
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState({});
 
@@ -47,7 +46,6 @@ export default function AdminLoginPage() {
       const data = await adminLogin(email.trim(), password);
       setPendingToken(data.pendingToken);
       setOtpSentTo(data.otpSentTo || SUPPORT_EMAIL);
-      setDeliveryMethod(data.deliveryMethod || 'email');
       setStep('otp');
       toast(data.message || 'Verification code sent.', 'success');
     } catch (err) {
@@ -151,9 +149,7 @@ export default function AdminLoginPage() {
           ) : (
             <div className="space-y-5">
               <p className="text-center text-sm text-slate-600">
-                {deliveryMethod === 'sms'
-                  ? `Enter the 6-digit code sent by SMS to ${otpSentTo}`
-                  : `Enter the 6-digit code sent to ${otpSentTo}`}
+                Enter the 6-digit code sent to {otpSentTo}
               </p>
 
               <OtpInput

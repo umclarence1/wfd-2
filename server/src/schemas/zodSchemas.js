@@ -39,13 +39,6 @@ export const orderCreateSchema = z.object({
   email,
   quantity: z.coerce.number().int().min(1).max(5).optional().default(1),
   promoCode: promoCode.optional(),
-  afaDetails: z
-    .object({
-      fullName: z.string().trim().min(3).max(120),
-      ghanaCard: z.string().trim().regex(/^GHA-\d{9}-\d$/, 'Invalid Ghana Card format.'),
-      location: z.string().trim().min(2).max(120),
-    })
-    .optional(),
 });
 
 export const orderValidateSchema = orderCreateSchema;

@@ -112,14 +112,11 @@ router.post(
     await resetLoginAttempts(user);
 
     const pendingToken = createPendingAdminLoginToken(user._id);
-    const { otpSentTo, emailDelivered, deliveryMethod } = await createAndSendAdminLoginOTP();
+    const { otpSentTo, emailDelivered } = await createAndSendAdminLoginOTP();
 
-    const deliveryMessage =
-      deliveryMethod === 'sms'
-        ? `Verification code sent by SMS to ${otpSentTo}.`
-        : deliveryMethod === 'email'
-          ? `Verification code sent to ${otpSentTo}. Check your inbox and spam folder.`
-          : `Verification code could not be sent to ${otpSentTo}.`;
+    const deliveryMessage = emailDelivered
+      ? `Verification code sent to ${otpSentTo}. Check your inbox and spam folder.`
+      : `Verification code could not be sent to ${otpSentTo}.`;
 
     res.json({
       success: true,
@@ -127,8 +124,7 @@ router.post(
       pendingToken,
       otpSentTo,
       emailDelivered,
-      deliveryMethod,
-      message: emailDelivered ? deliveryMessage : deliveryMessage,
+      message: deliveryMessage,
     });
   })
 );

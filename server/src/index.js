@@ -67,9 +67,9 @@ server.listen(env.port, () => {
   setInterval(async () => {
     try {
       const summary = await notifyStaleMtnPendingOrders(io);
-      if (summary.emailed > 0 || summary.sms > 0) {
+      if (summary.emailed > 0) {
         console.log(
-          `[MTN_PENDING_NOTICE] emailed=${summary.emailed} sms=${summary.sms} errors=${summary.errors}`
+          `[MTN_PENDING_NOTICE] emailed=${summary.emailed} errors=${summary.errors}`
         );
       }
     } catch (err) {

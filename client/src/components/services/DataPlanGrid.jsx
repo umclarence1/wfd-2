@@ -1,5 +1,22 @@
 import { Link } from 'react-router-dom';
 import { Globe } from 'lucide-react';
+import { usePackages } from '../../hooks/usePackages';
+
+const isCategorySellable = (packages, category) =>
+  packages.some(
+    (pkg) =>
+      pkg.category === category &&
+      pkg.isActive !== false &&
+      pkg.adminPaused !== true &&
+      pkg.isAvailable !== false
+  );
+
+export const isDataPlanAvailable = (plan, packages = []) => {
+  if (plan.alwaysAvailable) return true;
+  const categories = plan.availabilityCategories || (plan.category ? [plan.category] : []);
+  if (!categories.length) return true;
+  return categories.some((category) => isCategorySellable(packages, category));
+};
 
 export const DATA_PLANS = [
   { id: 'mtn', name: 'MTN', category: 'MTN', link: '/services/data/mtn', image: '/images/networks/mtn.jpg' },
@@ -81,7 +98,12 @@ function DataPlanCard({ plan, isAvailable, priority = false }) {
   );
 }
 
-export default function DataPlanGrid({ plans = DATA_PLANS, title, subtitle, appendCard }) {
+export default function DataPlanGrid({ plans = DATA_PLANS, title, subtitle, appendCard, hideUnavailable = true }) {
+  const { data: packages = [] } = usePackages();
+  const visiblePlans = hideUnavailable
+    ? plans.filter((plan) => isDataPlanAvailable(plan, packages))
+    : plans;
+
   return (
     <div>
       {title && (
@@ -92,8 +114,13 @@ export default function DataPlanGrid({ plans = DATA_PLANS, title, subtitle, appe
       )}
 
       <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3">
-        {plans.map((plan, index) => (
-          <DataPlanCard key={plan.id} plan={plan} isAvailable priority={index < 4} />
+        {visiblePlans.map((plan, index) => (
+          <DataPlanCard
+            key={plan.id}
+            plan={plan}
+            isAvailable={isDataPlanAvailable(plan, packages)}
+            priority={index < 4}
+          />
         ))}
         {appendCard}
       </div>

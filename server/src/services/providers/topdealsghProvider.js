@@ -216,11 +216,8 @@ export const submitTopDealsGhDataBundle = async (creds, order, pkg) => {
 
 export const submitTopDealsGhAFA = async (creds, order) => {
   const payload = {
-    fullName: order.afaDetails?.fullName,
     phone: formatGhanaLocalPhone(order.phone),
-    ghanaCard: order.afaDetails?.ghanaCard,
-    location: order.afaDetails?.location,
-    occupation: order.afaDetails?.occupation || 'Farmer',
+    ...(order.email ? { email: String(order.email).trim() } : {}),
   };
 
   try {
