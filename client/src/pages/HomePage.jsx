@@ -1,6 +1,6 @@
 import DataPlanGrid, { DATA_PLANS } from '../components/services/DataPlanGrid';
 
-const HOME_PLAN_IDS = ['mtn', 'telecel', 'airteltigo', 'afa', 'waec', 'web-dev'];
+const HOME_PLAN_IDS = ['mtn', 'airteltigo', 'afa', 'waec', 'web-dev'];
 
 const dataPlans = HOME_PLAN_IDS.map((id) => DATA_PLANS.find((p) => p.id === id)).filter(Boolean);
 
