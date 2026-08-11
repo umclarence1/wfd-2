@@ -99,10 +99,12 @@ function DataPlanCard({ plan, isAvailable, priority = false }) {
 }
 
 export default function DataPlanGrid({ plans = DATA_PLANS, title, subtitle, appendCard, hideUnavailable = true }) {
-  const { data: packages = [] } = usePackages();
-  const visiblePlans = hideUnavailable
-    ? plans.filter((plan) => isDataPlanAvailable(plan, packages))
-    : plans;
+  const { data: packages = [], isFetched } = usePackages();
+  const packagesReady = isFetched && packages.length > 0;
+  const visiblePlans =
+    hideUnavailable && packagesReady
+      ? plans.filter((plan) => isDataPlanAvailable(plan, packages))
+      : plans;
 
   return (
     <div>
@@ -118,7 +120,7 @@ export default function DataPlanGrid({ plans = DATA_PLANS, title, subtitle, appe
           <DataPlanCard
             key={plan.id}
             plan={plan}
-            isAvailable={isDataPlanAvailable(plan, packages)}
+            isAvailable={packagesReady ? isDataPlanAvailable(plan, packages) : true}
             priority={index < 4}
           />
         ))}
