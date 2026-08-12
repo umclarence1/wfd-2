@@ -101,10 +101,11 @@ function DataPlanCard({ plan, isAvailable, priority = false }) {
 export default function DataPlanGrid({ plans = DATA_PLANS, title, subtitle, appendCard, hideUnavailable = true }) {
   const { data: packages = [], isFetched } = usePackages();
   const packagesReady = isFetched && packages.length > 0;
-  const visiblePlans =
-    hideUnavailable && packagesReady
-      ? plans.filter((plan) => isDataPlanAvailable(plan, packages))
-      : plans;
+  const visiblePlans = plans.filter((plan) => {
+    if (plan.alwaysAvailable || plan.isWebDev) return true;
+    if (!hideUnavailable || !packagesReady) return true;
+    return isDataPlanAvailable(plan, packages);
+  });
 
   return (
     <div>
