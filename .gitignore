@@ -9,6 +9,9 @@ node_modules/
 server/.env
 client/.env
 
+# Vercel / local tooling
+.vercel/
+
 # Build
 dist/
 build/
@@ -24,8 +27,15 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+.cursor/
 
 # Uploads & local dev data
 uploads/
 data/
 cookies.txt
+
+# Secrets & keys (never commit)
+*.pem
+*.key
+credentials.json
+serviceAccount*.json
