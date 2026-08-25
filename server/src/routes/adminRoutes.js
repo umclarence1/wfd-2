@@ -219,7 +219,7 @@ router.get('/orders', requirePermission('orders'), asyncHandler(async (req, res)
 
   const networkKey = String(network || category || '').toLowerCase();
   if (networkKey === 'mtn') {
-    filter.category = { $in: ['MTN', 'MTN AFA'] };
+    filter.category = { $in: ['MTN', 'MTN EXPRESS', 'MTN AFA'] };
   } else if (networkKey === 'telecel') {
     filter.category = 'Telecel';
   } else if (networkKey === 'airteltigo') {

@@ -12,6 +12,7 @@ const NETWORK_ERROR_MESSAGES = {
 
 const CATEGORY_NETWORK_MAP = {
   MTN: 'MTN',
+  'MTN EXPRESS': 'MTN',
   'MTN AFA': 'MTN',
   Telecel: 'Telecel',
   'AirtelTigo Big Time': 'AirtelTigo',

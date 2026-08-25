@@ -3,7 +3,7 @@ import Order from '../models/Order.js';
 import Package from '../models/Package.js';
 import { getSiteSettings } from './siteSettingsService.js';
 import { generateReference } from '../utils/reference.js';
-import { validateNetworkPhone, validateEmail } from '../utils/validation.js';
+import { validateNetworkPhone, validateEmail, isMtnDataCategory } from '../utils/validation.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { calculatePaystackCharge, calculateTotal } from '../services/paystackService.js';
 import { validatePromoCode, redeemPromoCode, calculatePromoPrice } from '../services/promoService.js';
@@ -177,8 +177,7 @@ export const fulfillOrder = async (orderId, io) => {
     }
 
     const isMtnData =
-      order.serviceType === 'data_bundle' &&
-      String(order.category || '').toUpperCase() === 'MTN';
+      order.serviceType === 'data_bundle' && isMtnDataCategory(order.category);
 
     const previousPaymentStatus = order.paymentStatus;
     const previousDeliveryStatus = order.deliveryStatus;
@@ -311,8 +310,7 @@ export const fulfillOrder = async (orderId, io) => {
       ]);
     } else if (order.serviceType === 'data_bundle') {
       providerResponse = await submitDataBundleOrder(order, pkg);
-      const isMtn =
-        String(order.category || '').toUpperCase() === 'MTN';
+      const isMtn = isMtnDataCategory(order.category);
       const { shouldNotify } = applyProviderFulfillment(order, providerResponse, {
         // MTN stays pending until TopDeals marks delivered/failed (1h30m notice uses pending).
         successStatus: isMtn ? 'pending' : 'processing',

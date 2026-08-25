@@ -7,6 +7,7 @@ export const PROVIDER_IDS = {
 
 export const API_NETWORKS = [
   { key: 'MTN', label: 'MTN', serviceType: 'data_bundle' },
+  { key: 'MTN EXPRESS', label: 'MTN EXPRESS', serviceType: 'data_bundle' },
   { key: 'Telecel', label: 'Telecel', serviceType: 'data_bundle' },
   { key: 'AirtelTigo', label: 'AirtelTigo', serviceType: 'data_bundle' },
   { key: 'AirtelTigo Big Time', label: 'AirtelTigo Big Time', serviceType: 'data_bundle' },
@@ -33,6 +34,7 @@ export const PROVIDER_DEFINITIONS = {
 
 export const NETWORK_API_CODES = {
   MTN: 'mtn',
+  'MTN EXPRESS': 'mtn_express',
   Telecel: 'telecel',
   AirtelTigo: 'airteltigo',
   'AirtelTigo Big Time': 'bigtime',
@@ -50,6 +52,7 @@ export const DEFAULT_API_PROVIDER_SETTINGS = () => ({
   defaultProvider: PROVIDER_IDS.TOPDEALSGH,
   networkProviders: {
     MTN: PROVIDER_IDS.TOPDEALSGH,
+    'MTN EXPRESS': PROVIDER_IDS.TOPDEALSGH,
     Telecel: PROVIDER_IDS.TOPDEALSGH,
     AirtelTigo: PROVIDER_IDS.TOPDEALSGH,
     'AirtelTigo Big Time': PROVIDER_IDS.TOPDEALSGH,

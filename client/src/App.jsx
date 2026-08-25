@@ -46,6 +46,7 @@ export default function App() {
                     <Route index element={<HomePage />} />
                     <Route path="services" element={<ServicesPage />} />
                     <Route path="services/data/mtn" element={<DataBundlePage category="MTN" title="MTN Data Bundles" />} />
+                    <Route path="services/data/mtn-express" element={<DataBundlePage category="MTN EXPRESS" title="MTN EXPRESS Data Bundles" />} />
                     <Route path="services/data/telecel" element={<DataBundlePage category="Telecel" title="Telecel Data Bundles" />} />
                     <Route path="services/data/airteltigo-bigtime" element={<Navigate to="/services/data/airteltigo" replace />} />
                     <Route path="services/data/airteltigo" element={<DataBundlePage category="AirtelTigo" title="AirtelTigo Data Bundles" />} />

@@ -32,7 +32,7 @@ const statusTabs = [
 
 const networkFilters = [
   { key: '', label: 'All networks' },
-  { key: 'mtn', label: 'MTN only' },
+  { key: 'mtn', label: 'MTN only (incl. MTN EXPRESS)' },
   { key: 'telecel', label: 'Telecel only' },
   { key: 'airteltigo', label: 'AirtelTigo only' },
 ];

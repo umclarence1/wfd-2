@@ -1,12 +1,12 @@
 import Order from '../models/Order.js';
 import { sendNumberVerificationEmail } from './emailService.js';
+import { isMtnDataCategory } from '../utils/validation.js';
 
 /** MTN data must sit in pending this long before verification notice. */
 export const MTN_PENDING_NOTICE_MS = 90 * 60 * 1000;
 
 const isMtnDataOrder = (order) =>
-  order.serviceType === 'data_bundle' &&
-  String(order.category || '').toUpperCase() === 'MTN';
+  order.serviceType === 'data_bundle' && isMtnDataCategory(order.category);
 
 /**
  * After 1h30m still pending: send MTN verification email once.
@@ -18,7 +18,7 @@ export const notifyStaleMtnPendingOrders = async (io, { limit = 40 } = {}) => {
   const orders = await Order.find({
     paymentStatus: 'paid',
     serviceType: 'data_bundle',
-    category: 'MTN',
+    category: { $in: ['MTN', 'MTN EXPRESS'] },
     deliveryStatus: 'pending',
     'metadata.queuedForProvider': { $ne: true },
     'metadata.mtnVerificationNoticeSentAt': { $exists: false },

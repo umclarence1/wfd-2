@@ -3,6 +3,7 @@ import Package from '../models/Package.js';
 import Slider from '../models/Slider.js';
 import SiteSettings from '../models/SiteSettings.js';
 import { ensureSiteSettings } from '../services/siteSettingsService.js';
+import { buildMtnExpressPackages } from '../config/mtnExpressPackages.js';
 
 const MTN_BUNDLES = ['10GB', '15GB', '20GB', '25GB', '30GB', '35GB', '40GB', '45GB', '50GB', '100GB', '150GB'];
 const PRICES = { '10GB': 5, '15GB': 7, '20GB': 10, '25GB': 12, '30GB': 14, '35GB': 16, '40GB': 18, '45GB': 20, '50GB': 22, '100GB': 40, '150GB': 55 };
@@ -12,6 +13,7 @@ const buildInitialPackages = () => {
   MTN_BUNDLES.forEach((size, i) => {
     packages.push({ name: `MTN ${size}`, category: 'MTN', dataAmount: size, price: PRICES[size], serviceType: 'data_bundle', displayOrder: i, isActive: true, isAvailable: true });
   });
+  buildMtnExpressPackages().forEach((pkg) => packages.push(pkg));
   ['10GB', '20GB', '50GB'].forEach((size, i) => {
     packages.push({ name: `Telecel ${size}`, category: 'Telecel', dataAmount: size, price: PRICES[size] || 10, serviceType: 'data_bundle', displayOrder: i, isActive: true, isAvailable: true });
   });
@@ -77,6 +79,11 @@ export const autoSeedIfEmpty = async () => {
     }));
     await Package.insertMany(mtnPackages);
     console.log(`Created ${mtnPackages.length} MTN packages`);
+  }
+
+  if ((await Package.countDocuments({ category: 'MTN EXPRESS' })) === 0) {
+    await Package.insertMany(buildMtnExpressPackages());
+    console.log(`Created ${buildMtnExpressPackages().length} MTN EXPRESS packages`);
   }
 
   await Package.updateMany(

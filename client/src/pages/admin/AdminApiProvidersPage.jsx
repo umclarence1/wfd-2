@@ -7,6 +7,7 @@ import AdminPageHeader from '../../components/admin/AdminPageHeader';
 
 const NETWORKS = [
   { key: 'MTN', label: 'MTN' },
+  { key: 'MTN EXPRESS', label: 'MTN EXPRESS' },
   { key: 'Telecel', label: 'Telecel', alwaysApi: true, hint: 'Always sent to the API — cannot be turned Off' },
   { key: 'AirtelTigo', label: 'AirtelTigo' },
   { key: 'AirtelTigo Big Time', label: 'AirtelTigo Big Time' },

@@ -12,6 +12,17 @@ const MTN_COLORS = {
 
 export const NETWORK_BRAND_COLORS = {
   MTN: MTN_COLORS,
+  'MTN EXPRESS': {
+    pillActive:
+      'border-[#FFCB05] bg-black !text-[#FFCB05] shadow-sm hover:-translate-y-0.5 hover:border-[#FFCB05] hover:bg-gray-900 hover:!text-[#FFCB05] hover:shadow-md focus:!text-[#FFCB05] active:translate-y-0',
+    pillHover: 'hover:border-[#FFCB05] hover:bg-black/10 hover:text-gray-900 hover:shadow-sm',
+    boxActive: 'border-[#FFCB05] bg-black !text-[#FFCB05] shadow-sm',
+    boxHover: 'hover:border-[#FFCB05] hover:bg-[#FFCB05]/15',
+    summaryBox: 'border-amber-200 bg-amber-50 shadow-sm',
+    accent: 'text-gray-900',
+    inputFocus:
+      'focus:border-[#FFCB05] focus:ring-2 focus:ring-[#FFCB05]/45 hover:border-[#FFCB05]',
+  },
   'MTN AFA': MTN_COLORS,
   Telecel: {
     pillActive:

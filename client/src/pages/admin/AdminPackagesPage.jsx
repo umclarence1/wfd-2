@@ -8,6 +8,7 @@ import PackagePriceInput from '../../components/admin/PackagePriceInput';
 
 const PACKAGE_CATEGORIES = [
   'MTN',
+  'MTN EXPRESS',
   'Telecel',
   'AirtelTigo',
   'AirtelTigo Big Time',
@@ -18,6 +19,7 @@ const PACKAGE_CATEGORIES = [
 
 const CATEGORY_CONFIG = {
   MTN: { serviceType: 'data_bundle', label: 'Data bundle' },
+  'MTN EXPRESS': { serviceType: 'data_bundle', label: 'Data bundle' },
   Telecel: { serviceType: 'data_bundle', label: 'Data bundle' },
   AirtelTigo: { serviceType: 'data_bundle', label: 'Data bundle' },
   'AirtelTigo Big Time': { serviceType: 'data_bundle', label: 'Data bundle' },

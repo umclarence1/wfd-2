@@ -20,6 +20,7 @@ export const isDataPlanAvailable = (plan, packages = []) => {
 
 export const DATA_PLANS = [
   { id: 'mtn', name: 'MTN', category: 'MTN', link: '/services/data/mtn', image: '/images/networks/mtn.jpg' },
+  { id: 'mtn-express', name: 'MTN EXPRESS', category: 'MTN EXPRESS', link: '/services/data/mtn-express', image: '/images/networks/mtn-express.png' },
   { id: 'telecel', name: 'Telecel', category: 'Telecel', link: '/services/data/telecel', image: '/images/networks/telecel.jpg' },
   { id: 'airteltigo', name: 'AirtelTigo', category: 'AirtelTigo', link: '/services/data/airteltigo', image: '/images/networks/airteltigo.jpg' },
   { id: 'afa', name: 'MTN AFA', category: 'MTN AFA', link: '/services/afa', image: '/images/networks/afa.jpg' },

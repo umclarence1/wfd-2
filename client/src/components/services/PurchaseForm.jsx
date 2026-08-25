@@ -244,7 +244,7 @@ export default function PurchaseForm({
   const isSinglePage = !isChecker;
 
   const buyButtonClass =
-    category === 'MTN' || category === 'MTN AFA'
+    category === 'MTN' || category === 'MTN EXPRESS' || category === 'MTN AFA'
       ? 'w-full rounded-lg border border-[#FFCB05] bg-[#FFCB05] py-3.5 text-base font-bold text-gray-900 shadow-sm transition hover:bg-[#e6b800] disabled:opacity-50'
       : category === 'Telecel'
         ? 'w-full rounded-lg border border-[#E40520] bg-[#E40520] py-3.5 text-base font-bold text-white shadow-sm transition hover:bg-[#c9041c] disabled:opacity-50'

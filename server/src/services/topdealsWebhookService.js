@@ -6,6 +6,7 @@ import {
 import { maybeSendVerificationEmail } from './orderProviderStatusService.js';
 import { PROVIDER_IDS } from '../config/apiProviders.js';
 import { publishOrderUpdate } from './orderWebhookService.js';
+import { isMtnDataCategory } from '../utils/validation.js';
 
 const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -71,9 +72,7 @@ export const applyTopDealsWebhook = async (rawPayload, io) => {
   const previousPayment = order.paymentStatus;
   let synced = false;
 
-  const isMtnData =
-    order.serviceType === 'data_bundle' &&
-    String(order.category || '').toUpperCase() === 'MTN';
+  const isMtnData = order.serviceType === 'data_bundle' && isMtnDataCategory(order.category);
 
   if (deliveryStatus && deliveryStatus !== order.deliveryStatus) {
     // MTN data stays pending through processing/verification so the 1h30m notice can fire.

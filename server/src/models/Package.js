@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 
 const PACKAGE_CATEGORIES = [
   'MTN',
+  'MTN EXPRESS',
   'Telecel',
   'AirtelTigo Big Time',
   'AirtelTigo',

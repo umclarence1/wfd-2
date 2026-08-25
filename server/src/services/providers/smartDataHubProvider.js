@@ -12,6 +12,7 @@ import {
 
 const SMART_DATA_HUB_NETWORK_CODES = {
   MTN: 'mtn',
+  'MTN EXPRESS': 'mtn',
   Telecel: 'telecel',
   AirtelTigo: 'at',
   'AirtelTigo Big Time': 'at',

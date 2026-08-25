@@ -2,6 +2,7 @@ export const WAEC_IMAGE = '/images/networks/waec.jpg';
 
 export const PACKAGE_IMAGES = {
   MTN: '/images/networks/mtn.jpg',
+  'MTN EXPRESS': '/images/networks/mtn-express.png',
   Telecel: '/images/networks/telecel.jpg',
   AirtelTigo: '/images/networks/airteltigo.jpg',
   'MTN AFA': '/images/networks/afa.jpg',
@@ -17,6 +18,14 @@ export const SERVICE_CATEGORIES = [
     category: 'MTN',
     link: '/services/data/mtn',
     image: PACKAGE_IMAGES.MTN,
+    accent: 'ring-yellow-400/30 hover:ring-yellow-400/60',
+  },
+  {
+    id: 'mtn-express',
+    title: 'MTN EXPRESS Data Bundles',
+    category: 'MTN EXPRESS',
+    link: '/services/data/mtn-express',
+    image: PACKAGE_IMAGES['MTN EXPRESS'],
     accent: 'ring-yellow-400/30 hover:ring-yellow-400/60',
   },
   {

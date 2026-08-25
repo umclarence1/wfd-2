@@ -9,6 +9,7 @@ import PromoCheckoutToggle from '../../components/admin/PromoCheckoutToggle';
 const PACKAGE_OPTIONS = [
   { value: 'all', label: 'All products' },
   { value: 'MTN', label: 'MTN' },
+  { value: 'MTN EXPRESS', label: 'MTN EXPRESS' },
   { value: 'Telecel', label: 'Telecel' },
   { value: 'AirtelTigo', label: 'AirtelTigo' },
   { value: 'AirtelTigo Big Time', label: 'AirtelTigo Big Time' },

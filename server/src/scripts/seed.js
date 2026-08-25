@@ -5,6 +5,7 @@ import Package from '../models/Package.js';
 import Slider from '../models/Slider.js';
 import SiteSettings from '../models/SiteSettings.js';
 import { DEFAULT_API_PROVIDER_SETTINGS } from '../config/apiProviders.js';
+import { buildMtnExpressPackages } from '../config/mtnExpressPackages.js';
 
 dotenv.config();
 
@@ -44,6 +45,8 @@ const seed = async () => {
         displayOrder: i,
       });
     });
+
+    buildMtnExpressPackages().forEach((pkg) => packages.push(pkg));
 
     ['10GB', '20GB', '50GB'].forEach((size, i) => {
       packages.push({
@@ -86,6 +89,11 @@ const seed = async () => {
 
     await Package.insertMany(packages);
     console.log(`Created ${packages.length} packages`);
+  }
+
+  if ((await Package.countDocuments({ category: 'MTN EXPRESS' })) === 0) {
+    await Package.insertMany(buildMtnExpressPackages());
+    console.log(`Created ${buildMtnExpressPackages().length} MTN EXPRESS packages`);
   }
 
   const sliderSlides = [

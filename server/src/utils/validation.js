@@ -12,11 +12,15 @@ const NETWORK_ERROR_MESSAGES = {
 
 const CATEGORY_NETWORK_MAP = {
   MTN: 'MTN',
+  'MTN EXPRESS': 'MTN',
   'MTN AFA': 'MTN',
   Telecel: 'Telecel',
   'AirtelTigo Big Time': 'AirtelTigo',
   AirtelTigo: 'AirtelTigo',
 };
+
+export const isMtnDataCategory = (category) =>
+  ['MTN', 'MTN EXPRESS'].includes(String(category || '').toUpperCase());
 
 export const normalizePhone = (phone) => {
   return String(phone || '').replace(/\s/g, '').replace(/\D/g, '');

@@ -13,6 +13,7 @@ import {
 
 const NETWORK_MAP = {
   MTN: 'MTN',
+  'MTN EXPRESS': 'MTN',
   Telecel: 'Telecel',
   AirtelTigo: 'AirtelTigo',
   'AirtelTigo Big Time': 'AirtelTigo',

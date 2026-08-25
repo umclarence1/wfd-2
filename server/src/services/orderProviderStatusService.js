@@ -5,6 +5,7 @@ import { checkProviderStatus } from './providerService.js';
 import { resolveProviderForCategory } from './apiProviderService.js';
 import { sendNumberVerificationEmail } from './emailService.js';
 import { publishOrderUpdate } from './orderWebhookService.js';
+import { isMtnDataCategory } from '../utils/validation.js';
 
 const API_SERVICE_TYPES = new Set(['data_bundle', 'afa_registration']);
 const OPEN_DELIVERY_STATUSES = ['pending', 'processing', 'verification'];
@@ -37,7 +38,7 @@ const buildQueuedPayload = (order) => ({
 
 export const maybeSendVerificationEmail = async (order, previousDeliveryStatus, { force = false } = {}) => {
   // Auto-sync skips MTN (1h30m delayed notice). Admin manual "verification" can force it.
-  if (!force && String(order.category || '').toUpperCase() === 'MTN') return false;
+  if (!force && isMtnDataCategory(order.category)) return false;
   if (order.deliveryStatus !== 'verification') return false;
   if (previousDeliveryStatus === 'verification') return false;
   if (order.metadata?.verificationEmailSentAt) return false;
@@ -88,8 +89,7 @@ export const syncOrderProviderStatus = async (orderId, io) => {
 
   if (mappedDelivery && mappedDelivery !== order.deliveryStatus) {
     const isMtnData =
-      order.serviceType === 'data_bundle' &&
-      String(order.category || '').toUpperCase() === 'MTN';
+      order.serviceType === 'data_bundle' && isMtnDataCategory(order.category);
 
     // MTN data stays pending through processing/verification (1h30m pending notice).
     if (isMtnData && ['processing', 'verification'].includes(mappedDelivery)) {
