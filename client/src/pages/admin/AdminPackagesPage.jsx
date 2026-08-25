@@ -179,6 +179,11 @@ export default function AdminPackagesPage() {
     grouped[category].sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0));
   });
 
+  const orderedCategories = [
+    ...PACKAGE_CATEGORIES.filter((cat) => grouped[cat]?.length),
+    ...Object.keys(grouped).filter((cat) => !PACKAGE_CATEGORIES.includes(cat)),
+  ];
+
   return (
     <div className="space-y-8">
       <div className="flex flex-wrap items-end justify-between gap-4">
@@ -262,7 +267,8 @@ export default function AdminPackagesPage() {
         </form>
       )}
 
-      {Object.entries(grouped).map(([category, items]) => {
+      {orderedCategories.map((category) => {
+        const items = grouped[category];
         const sellingCount = items.filter(isPackageSelling).length;
         const allSelling = sellingCount === items.length;
         const noneSelling = sellingCount === 0;
