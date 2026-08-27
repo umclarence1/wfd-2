@@ -1,5 +1,5 @@
 /**
- * Unpause BECE result checker and sync availability from TopDealsGH stock.
+ * Enable BECE/WASSCE result checkers and sync availability from TopDealsGH stock.
  *
  *   node src/scripts/enableBeceChecker.js
  */
@@ -7,7 +7,7 @@ import dns from 'node:dns';
 import mongoose from 'mongoose';
 import { env } from '../config/env.js';
 import Package from '../models/Package.js';
-import { syncCheckerPackageAvailability } from '../services/checkerService.js';
+import { ensureCheckerPackages, syncCheckerPackageAvailability } from '../services/checkerService.js';
 
 if (process.env.SCRIPT_DNS) {
   dns.setServers(process.env.SCRIPT_DNS.split(',').map((s) => s.trim()).filter(Boolean));
@@ -20,6 +20,8 @@ const run = async () => {
     .select('name checkerType isActive adminPaused isAvailable')
     .lean();
   console.log('Before:', JSON.stringify(before, null, 2));
+
+  await ensureCheckerPackages();
 
   const result = await Package.updateMany(
     { serviceType: 'result_checker', checkerType: /^(BECE|WASSCE)$/i, isActive: true },

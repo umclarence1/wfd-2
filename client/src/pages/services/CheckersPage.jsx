@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import PurchaseForm from '../../components/services/PurchaseForm';
-import { usePackages } from '../../hooks/usePackages';
+import { packagesQueryOptions } from '../../hooks/usePackages';
 
 export const CHECKER_EXAM_TYPES = [
   { id: 'BECE Checker', label: 'BECE', checkerType: 'BECE' },
@@ -10,7 +11,11 @@ export const CHECKER_EXAM_TYPES = [
 
 export default function CheckersPage() {
   const [examType, setExamType] = useState(null);
-  const { data: packages = [], isFetching, isPending } = usePackages();
+  const { data: packages = [], isFetching, isPending } = useQuery({
+    ...packagesQueryOptions,
+    staleTime: 30_000,
+    refetchOnMount: 'always',
+  });
 
   // Only show exam types that are on sale locally and in stock on TopDealsGH.
   const availableExamTypes = useMemo(() => {

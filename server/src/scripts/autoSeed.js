@@ -4,6 +4,7 @@ import Slider from '../models/Slider.js';
 import SiteSettings from '../models/SiteSettings.js';
 import { ensureSiteSettings } from '../services/siteSettingsService.js';
 import { buildMtnExpressPackages } from '../config/mtnExpressPackages.js';
+import { ensureCheckerPackages, syncCheckerPackageAvailability } from '../services/checkerService.js';
 
 const MTN_BUNDLES = ['10GB', '15GB', '20GB', '25GB', '30GB', '35GB', '40GB', '45GB', '50GB', '100GB', '150GB'];
 const PRICES = { '10GB': 5, '15GB': 7, '20GB': 10, '25GB': 12, '30GB': 14, '35GB': 16, '40GB': 18, '45GB': 20, '50GB': 22, '100GB': 40, '150GB': 55 };
@@ -101,6 +102,12 @@ export const autoSeedIfEmpty = async () => {
   }
 
   // Checkers are fulfilled via TopDealsGH stock/API — do not seed local PIN inventory.
+  await ensureCheckerPackages();
+  try {
+    await syncCheckerPackageAvailability();
+  } catch (err) {
+    console.error('[CHECKER_STOCK] Boot sync failed:', err.message);
+  }
 
   await Package.updateMany(
     { category: 'MTN AFA', afaType: { $in: ['renewal', 'status_check'] } },

@@ -21,8 +21,16 @@ router.get(
     if (category) filter.category = category;
     if (serviceType) filter.serviceType = serviceType;
 
-    // Local DB only — do not wait on TopDealsGH here (that was making /packages 2–3s+).
-    // Checker stock is mirrored onto Package.isAvailable by background sync.
+    const isCheckerQuery =
+      serviceType === 'result_checker' ||
+      category === 'BECE Checker' ||
+      category === 'WASSCE Checker';
+
+    if (isCheckerQuery) {
+      await syncCheckerPackageAvailability();
+    }
+
+    // Local DB only — checker stock is mirrored onto Package.isAvailable by sync above.
     const packages = await Package.find(filter)
       .sort({ displayOrder: 1, price: 1 })
       .select(
@@ -38,8 +46,8 @@ router.get(
       return withPublicAvailability(pkg);
     });
 
-    // Refresh stock in the background so the next request stays accurate.
-    if (packages.some((pkg) => pkg.serviceType === 'result_checker')) {
+    // Refresh stock in the background when listing all packages (includes checkers).
+    if (!isCheckerQuery && packages.some((pkg) => pkg.serviceType === 'result_checker')) {
       syncCheckerPackageAvailability().catch((err) => {
         console.error('[CHECKER_STOCK] Background sync failed:', err.message);
       });

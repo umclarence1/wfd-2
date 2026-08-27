@@ -12,6 +12,43 @@ const CHECKER_CATEGORY_MAP = {
   WASSCE: 'WASSCE Checker',
 };
 
+export const DEFAULT_CHECKER_PACKAGES = [
+  {
+    name: 'BECE Result Checker',
+    category: 'BECE Checker',
+    price: 17,
+    serviceType: 'result_checker',
+    checkerType: 'BECE',
+    displayOrder: 0,
+    isActive: true,
+    isAvailable: true,
+    adminPaused: false,
+  },
+  {
+    name: 'WASSCE Result Checker',
+    category: 'WASSCE Checker',
+    price: 17,
+    serviceType: 'result_checker',
+    checkerType: 'WASSCE',
+    displayOrder: 0,
+    isActive: true,
+    isAvailable: true,
+    adminPaused: false,
+  },
+];
+
+const normalizeCheckerType = (value) => {
+  const raw = String(value || '').toLowerCase().trim();
+  if (raw === 'bece') return 'BECE';
+  if (raw === 'wassce' || raw === 'waec') return 'WASSCE';
+  return String(value || '').toUpperCase();
+};
+
+const findCheckerOffer = (offers, checkerType) => {
+  const want = normalizeCheckerType(checkerType);
+  return (offers || []).find((o) => normalizeCheckerType(o.type) === want);
+};
+
 let checkerOffersCache = { at: 0, data: null };
 const CHECKER_OFFERS_TTL_MS = 5 * 60_000;
 const CHECKER_OFFERS_STALE_MS = 30 * 60_000;
@@ -60,7 +97,7 @@ export const getCheckerStockMap = async () => {
     const creds = await getProviderCredentials(PROVIDER_IDS.TOPDEALSGH);
     const data = await getCachedCheckerOffers(creds);
     for (const offer of data.offers || []) {
-      const type = String(offer.type || '').toUpperCase();
+      const type = normalizeCheckerType(offer.type);
       if (type === 'BECE' || type === 'WASSCE') {
         map[type] = offerInStock(offer, 1);
       }
@@ -79,8 +116,7 @@ export const resolveCheckerInStock = async (checkerType, quantity = 1) => {
   try {
     const creds = await getProviderCredentials(PROVIDER_IDS.TOPDEALSGH);
     const data = await getCachedCheckerOffers(creds);
-    const type = String(checkerType || '').toLowerCase();
-    const offer = (data.offers || []).find((o) => String(o.type).toLowerCase() === type);
+    const offer = findCheckerOffer(data.offers, checkerType);
     return offerInStock(offer, quantity);
   } catch {
     return false;
@@ -116,4 +152,22 @@ export const syncCheckerPackageAvailability = async () => {
   }
 
   return updates;
+};
+
+/** Create missing checker packages and keep them on sale (stock still mirrors TopDealsGH). */
+export const ensureCheckerPackages = async () => {
+  for (const defaults of DEFAULT_CHECKER_PACKAGES) {
+    const existing = await Package.findOne({
+      serviceType: 'result_checker',
+      checkerType: defaults.checkerType,
+    });
+    if (!existing) {
+      await Package.create(defaults);
+      continue;
+    }
+    if (existing.adminPaused) {
+      existing.adminPaused = false;
+      await existing.save();
+    }
+  }
 };

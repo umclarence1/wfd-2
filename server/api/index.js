@@ -38,6 +38,12 @@ const bootstrap = async () => {
   await migrateSiteSettingsOnBoot();
   await autoSeedIfEmpty();
 
+  try {
+    await syncCheckerPackageAvailability();
+  } catch (err) {
+    console.error('[CHECKER_STOCK] Bootstrap sync failed:', err.message);
+  }
+
   // Destructive wipe flags are CLI-only — never run on serverless boot.
   if (process.env.CLEAR_ALL_ORDERS === 'true' || process.env.CLEAR_ALL_CHECKERS === 'true') {
     console.warn(

@@ -285,7 +285,11 @@ export const getTopDealsGhCheckerOffers = async (creds) => {
 export const checkTopDealsGhCheckerStock = async (creds, checkerType, quantity = 1) => {
   const data = await getTopDealsGhCheckerOffers(creds);
   const type = String(checkerType || '').toLowerCase();
-  const offer = (data.offers || []).find((o) => String(o.type).toLowerCase() === type);
+  const offer = (data.offers || []).find((o) => {
+    const offerType = String(o.type || '').toLowerCase();
+    if (type === 'wassce') return offerType === 'wassce' || offerType === 'waec';
+    return offerType === type;
+  });
   if (!offer) return false;
   if (offer.inStock === false) return false;
   const available = Number(offer.availableCount);
