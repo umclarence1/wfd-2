@@ -1,6 +1,8 @@
 import { Link } from 'react-router-dom';
+import { useMemo } from 'react';
 import { Globe } from 'lucide-react';
 import { usePackages } from '../../hooks/usePackages';
+import { useCheckerPackages } from '../../hooks/useCheckerPackages';
 
 const isCategorySellable = (packages, category) =>
   packages.some(
@@ -101,11 +103,22 @@ function DataPlanCard({ plan, isAvailable, priority = false }) {
 
 export default function DataPlanGrid({ plans = DATA_PLANS, title, subtitle, appendCard, hideUnavailable = true }) {
   const { data: packages = [], isFetched } = usePackages();
-  const packagesReady = isFetched && packages.length > 0;
+  const { data: checkerPackages = [], isFetched: checkersFetched } = useCheckerPackages();
+
+  const mergedPackages = useMemo(() => {
+    if (!checkerPackages.length) return packages;
+    const withoutCheckers = packages.filter((p) => p.serviceType !== 'result_checker');
+    return [...withoutCheckers, ...checkerPackages];
+  }, [packages, checkerPackages]);
+
+  const packagesReady = isFetched && mergedPackages.length > 0;
+  const checkersReady = checkersFetched || !plans.some((p) => p.id === 'waec');
+  const stockReady = packagesReady && checkersReady;
+
   const visiblePlans = plans.filter((plan) => {
     if (plan.alwaysAvailable || plan.isWebDev) return true;
-    if (!hideUnavailable || !packagesReady) return true;
-    return isDataPlanAvailable(plan, packages);
+    if (!hideUnavailable || !stockReady) return true;
+    return isDataPlanAvailable(plan, mergedPackages);
   });
 
   return (
@@ -122,7 +135,7 @@ export default function DataPlanGrid({ plans = DATA_PLANS, title, subtitle, appe
           <DataPlanCard
             key={plan.id}
             plan={plan}
-            isAvailable={packagesReady ? isDataPlanAvailable(plan, packages) : true}
+            isAvailable={stockReady ? isDataPlanAvailable(plan, mergedPackages) : true}
             priority={index < 4}
           />
         ))}

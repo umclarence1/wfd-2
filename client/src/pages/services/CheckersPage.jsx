@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
 import PurchaseForm from '../../components/services/PurchaseForm';
-import { packagesQueryOptions } from '../../hooks/usePackages';
+import { useCheckerPackages } from '../../hooks/useCheckerPackages';
 
 export const CHECKER_EXAM_TYPES = [
   { id: 'BECE Checker', label: 'BECE', checkerType: 'BECE' },
@@ -11,13 +10,8 @@ export const CHECKER_EXAM_TYPES = [
 
 export default function CheckersPage() {
   const [examType, setExamType] = useState(null);
-  const { data: packages = [], isFetching, isPending } = useQuery({
-    ...packagesQueryOptions,
-    staleTime: 30_000,
-    refetchOnMount: 'always',
-  });
+  const { data: packages = [], isFetching, isPending, isError } = useCheckerPackages();
 
-  // Only show exam types that are on sale locally and in stock on TopDealsGH.
   const availableExamTypes = useMemo(() => {
     return CHECKER_EXAM_TYPES.filter((opt) =>
       (packages || []).some(
@@ -30,6 +24,17 @@ export default function CheckersPage() {
       )
     );
   }, [packages]);
+
+  const selectedCheckerPackages = useMemo(() => {
+    if (!examType) return [];
+    return (packages || []).filter(
+      (p) =>
+        p.category === examType &&
+        p.isActive !== false &&
+        p.adminPaused !== true &&
+        p.isAvailable !== false
+    );
+  }, [packages, examType]);
 
   useEffect(() => {
     if (!availableExamTypes.length) {
@@ -59,7 +64,7 @@ export default function CheckersPage() {
     );
   }
 
-  if (availableExamTypes.length === 0) {
+  if (isError || availableExamTypes.length === 0) {
     return (
       <div className="mx-auto max-w-lg px-4 py-10">
         <h1 className="text-xl font-bold text-gray-900">Result Checker</h1>
@@ -77,6 +82,7 @@ export default function CheckersPage() {
       checkerExamType={examType}
       checkerExamOptions={availableExamTypes}
       onCheckerExamTypeChange={setExamType}
+      packagesOverride={selectedCheckerPackages}
     />
   );
 }

@@ -70,7 +70,8 @@ export default function PurchaseForm({
     }
   };
 
-  const { packages: checkerPackages } = usePackagesByCategory(isChecker ? category : '');
+  const { packages: checkerPackagesFromApi } = usePackagesByCategory(isChecker && !packagesOverride?.length ? category : '');
+  const checkerPackages = packagesOverride?.length ? packagesOverride : checkerPackagesFromApi;
 
   const handleSelectPackage = useCallback((pkg) => {
     setSelected(pkg);

@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import api from '../api/client';
 
-const PACKAGES_CACHE_KEY = 'wds_packages_cache_v1';
+const PACKAGES_CACHE_KEY = 'wds_packages_cache_v2';
 
 const readCachedPackages = () => {
   try {
@@ -17,7 +17,13 @@ const readCachedPackages = () => {
 const writeCachedPackages = (packages) => {
   try {
     if (Array.isArray(packages) && packages.length) {
-      localStorage.setItem(PACKAGES_CACHE_KEY, JSON.stringify(packages));
+      // Checker stock changes often — do not cache availability for result checkers.
+      const toStore = packages.map((pkg) =>
+        pkg.serviceType === 'result_checker'
+          ? { ...pkg, isAvailable: true, inStock: true }
+          : pkg
+      );
+      localStorage.setItem(PACKAGES_CACHE_KEY, JSON.stringify(toStore));
     }
   } catch {
     // ignore quota / private mode
@@ -40,11 +46,11 @@ export const packagesQueryOptions = {
     const cached = readCachedPackages();
     return cached.length ? Date.now() - 30_000 : 0;
   },
-  staleTime: 10 * 60 * 1000,
+  staleTime: 60_000,
   gcTime: 60 * 60 * 1000,
   retry: 1,
   placeholderData: (previousData) => previousData ?? readCachedPackages(),
-  refetchOnMount: false,
+  refetchOnMount: true,
   refetchOnWindowFocus: false,
   refetchInterval: false,
 };
