@@ -3,7 +3,7 @@ import Order from '../models/Order.js';
 import { generateReference } from '../utils/reference.js';
 import { AppError } from '../middleware/errorHandler.js';
 
-const CHECKOUT_TTL_MS = 30 * 60 * 1000;
+const CHECKOUT_TTL_MS = 60 * 60 * 1000;
 
 export const createPendingPayment = async (validated, user, idempotencyKey) => {
   if (idempotencyKey) {

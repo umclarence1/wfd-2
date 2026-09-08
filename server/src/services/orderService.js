@@ -349,18 +349,28 @@ export const fulfillOrder = async (orderId, io) => {
   } catch (err) {
     await session.abortTransaction();
     const order = await Order.findById(orderId);
-    if (order) {
+    if (order && order.paymentStatus === 'paid') {
       const previousDeliveryStatus = order.deliveryStatus;
-      order.deliveryStatus = 'failed';
-      order.failureReason = 'We could not complete your order. Please try again or contact support.';
+      const isMtnData =
+        order.serviceType === 'data_bundle' && isMtnDataCategory(order.category);
+      order.deliveryStatus = isMtnData ? 'pending' : 'processing';
+      order.metadata = {
+        ...(order.metadata || {}),
+        queuedForProvider: true,
+        queueReason: 'fulfillment_error',
+        lastFulfillmentError: err.message,
+        lastFulfillmentAt: new Date().toISOString(),
+      };
+      order.failureReason = 'Payment received — your order is being processed.';
+      order.retryCount = (order.retryCount || 0) + 1;
       await order.save();
       await publishOrderUpdate(order, {
         io,
-        trigger: 'fulfillment.error',
+        trigger: 'fulfillment.queued',
         previousDeliveryStatus,
       });
     }
-    throw err;
+    return order;
   } finally {
     session.endSession();
   }

@@ -1,20 +1,44 @@
 import { fulfillOrder } from './orderService.js';
-import { findQueuedProviderOrders } from './orderQueueService.js';
+import { findQueuedProviderOrders, findRetryableFailedOrders } from './orderQueueService.js';
 
 export const retryQueuedProviderOrders = async (io, { limit = 25 } = {}) => {
-  const orders = await findQueuedProviderOrders(limit);
+  const queued = await findQueuedProviderOrders(limit);
+  const failed = await findRetryableFailedOrders(Math.max(5, Math.floor(limit / 2)));
+  const seen = new Set();
+  const orders = [];
+
+  for (const order of [...queued, ...failed]) {
+    const id = String(order._id);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    orders.push(order);
+  }
+
   const results = [];
 
   for (const order of orders) {
     try {
+      if (order.deliveryStatus === 'failed') {
+        order.deliveryStatus = 'processing';
+        order.metadata = {
+          ...(order.metadata || {}),
+          queuedForProvider: true,
+          queueReason: 'retry_after_failure',
+        };
+        await order.save();
+      }
+
       const updated = await fulfillOrder(order._id, io);
-      const delivered =
-        updated?.deliveryStatus === 'delivered' || updated?.deliveryStatus === 'processing';
+      const ok =
+        updated?.deliveryStatus === 'delivered'
+        || updated?.deliveryStatus === 'processing'
+        || updated?.deliveryStatus === 'pending'
+        || updated?.deliveryStatus === 'verification';
       results.push({
         reference: order.reference,
         status: updated?.deliveryStatus || 'unknown',
         queueReason: updated?.metadata?.queueReason,
-        success: delivered,
+        success: ok,
         stillQueued: updated?.metadata?.queuedForProvider === true,
       });
     } catch (err) {

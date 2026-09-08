@@ -7,7 +7,7 @@ import mongoose from 'mongoose';
 import connectDB from './config/db.js';
 import { env } from './config/env.js';
 import { errorHandler } from './middleware/errorHandler.js';
-import { apiLimiter } from './middleware/rateLimit.js';
+import { apiLimiter, webhookLimiter } from './middleware/rateLimit.js';
 import { csrfProtection, getCsrfToken } from './middleware/csrf.js';
 import authRoutes from './routes/authRoutes.js';
 import packageRoutes from './routes/packageRoutes.js';
@@ -17,6 +17,7 @@ import publicRoutes from './routes/publicRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
 import cronRoutes from './routes/cronRoutes.js';
 import topdealsWebhookRoutes from './routes/topdealsWebhookRoutes.js';
+import { handlePaystackWebhook } from './routes/paymentRoutes.js';
 import { getSiteSettings } from './services/siteSettingsService.js';
 
 const noopIo = { emit: () => {}, on: () => {} };
@@ -124,9 +125,10 @@ export const createApp = (io = noopIo) => {
 
   app.get('/api/csrf-token', getCsrfToken);
 
-  // Webhooks + cron before the general API limiter so status pushes are never throttle-blocked.
+  // Webhooks + cron before the general API limiter so Paystack/TopDeals are never throttle-blocked.
   app.use('/api/webhooks', topdealsWebhookRoutes);
   app.use('/api/cron', cronRoutes);
+  app.post('/api/payments/webhook', webhookLimiter, handlePaystackWebhook);
   app.use('/api', apiLimiter);
   app.use('/api/auth', authRoutes);
   app.use('/api/packages', packageRoutes);

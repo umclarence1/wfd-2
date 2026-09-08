@@ -8,6 +8,24 @@ import { AppError } from '../middleware/errorHandler.js';
 import { logSecurityEvent } from './securityLogger.js';
 import { publishOrderUpdate } from './orderWebhookService.js';
 
+const AMOUNT_TOLERANCE = 0.02;
+
+const validatePaidAmount = (amountPaid, expectedTotal, paymentReference) => {
+  if (amountPaid == null || !Number.isFinite(Number(amountPaid))) {
+    logSecurityEvent('payment_amount_missing', { paymentReference });
+    throw new AppError('Payment amount missing.', 400);
+  }
+
+  if (Math.abs(Number(amountPaid) - Number(expectedTotal)) > AMOUNT_TOLERANCE) {
+    logSecurityEvent('payment_amount_mismatch', {
+      paymentReference,
+      expected: expectedTotal,
+      received: amountPaid,
+    });
+    throw new AppError('Payment amount mismatch.', 400);
+  }
+};
+
 export const markOrderPaidFromPaystack = async ({
   paymentReference,
   paystackTransactionId,
@@ -15,21 +33,27 @@ export const markOrderPaidFromPaystack = async ({
   io,
 }) => {
   let order = await Order.findOne({ paymentReference });
+  let createdFromPending = false;
 
   if (order?.paymentStatus === 'paid') {
     logSecurityEvent('duplicate_payment_webhook', { paymentReference });
+    if (order.deliveryStatus === 'failed' || order.metadata?.queuedForProvider) {
+      try {
+        await fulfillOrder(order._id, io);
+      } catch (err) {
+        console.error('[PAYMENT] Re-fulfillment failed:', order.reference, err.message);
+      }
+    }
+    retryQueuedProviderOrders(io).catch(() => {});
     return { order, duplicate: true };
   }
 
   if (!order) {
     order = await resolveOrderForPayment(paymentReference);
-    await publishOrderUpdate(order, {
-      io,
-      trigger: 'order.created',
-      event: 'order.created',
-      force: true,
-    });
+    createdFromPending = true;
   }
+
+  validatePaidAmount(amountPaid, order.totalAmount, paymentReference);
 
   order = await Order.findOneAndUpdate(
     { _id: order._id, paymentStatus: { $ne: 'paid' } },
@@ -48,38 +72,13 @@ export const markOrderPaidFromPaystack = async ({
     throw new AppError('Order not found for payment reference.', 404);
   }
 
-  if (amountPaid == null || !Number.isFinite(Number(amountPaid))) {
-    const previousPaymentStatus = order.paymentStatus;
-    order.paymentStatus = 'failed';
-    order.failureReason = 'Payment amount missing';
-    await order.save();
+  if (createdFromPending) {
     await publishOrderUpdate(order, {
       io,
-      trigger: 'payment.failed',
-      event: 'order.payment.failed',
-      previousPaymentStatus,
+      trigger: 'order.created',
+      event: 'order.created',
+      force: true,
     });
-    logSecurityEvent('payment_amount_missing', { paymentReference });
-    throw new AppError('Payment amount missing.', 400);
-  }
-
-  if (Math.abs(Number(amountPaid) - order.totalAmount) > 0.01) {
-    const previousPaymentStatus = order.paymentStatus;
-    order.paymentStatus = 'failed';
-    order.failureReason = 'Payment amount mismatch';
-    await order.save();
-    await publishOrderUpdate(order, {
-      io,
-      trigger: 'payment.failed',
-      event: 'order.payment.failed',
-      previousPaymentStatus,
-    });
-    logSecurityEvent('payment_amount_mismatch', {
-      paymentReference,
-      expected: order.totalAmount,
-      received: amountPaid,
-    });
-    throw new AppError('Payment amount mismatch.', 400);
   }
 
   if (order.promoCode) {
@@ -103,7 +102,14 @@ export const markOrderPaidFromPaystack = async ({
     previousDeliveryStatus: order.deliveryStatus,
   });
 
-  await fulfillOrder(order._id, io);
+  try {
+    await fulfillOrder(order._id, io);
+  } catch (err) {
+    console.error('[PAYMENT] Fulfillment error after Paystack payment:', order.reference, err.message);
+  }
+
   retryQueuedProviderOrders(io).catch(() => {});
-  return { order, duplicate: false };
+
+  const refreshed = await Order.findById(order._id);
+  return { order: refreshed || order, duplicate: false };
 };
