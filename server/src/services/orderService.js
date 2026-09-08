@@ -3,7 +3,7 @@ import Order from '../models/Order.js';
 import Package from '../models/Package.js';
 import { getSiteSettings } from './siteSettingsService.js';
 import { generateReference } from '../utils/reference.js';
-import { validateNetworkPhone, validateEmail, isMtnDataCategory } from '../utils/validation.js';
+import { validateNetworkPhone, validateEmail } from '../utils/validation.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { calculatePaystackCharge, calculateTotal } from '../services/paystackService.js';
 import { validatePromoCode, redeemPromoCode, calculatePromoPrice } from '../services/promoService.js';
@@ -176,38 +176,45 @@ export const fulfillOrder = async (orderId, io) => {
       return order;
     }
 
-    const isMtnData =
-      order.serviceType === 'data_bundle' && isMtnDataCategory(order.category);
-
     const previousPaymentStatus = order.paymentStatus;
     const previousDeliveryStatus = order.deliveryStatus;
 
-    // MTN data stays pending until delivered/failed so the 1h30m notice can fire.
-    order.deliveryStatus = isMtnData ? 'pending' : 'processing';
+    // Paid orders show as processing while TopDeals fulfills.
+    order.deliveryStatus = 'processing';
     await order.save({ session });
 
     const pkg = await Package.findById(order.package).session(session);
     if (!pkg || !pkg.isActive || pkg.adminPaused) {
-      order.deliveryStatus = 'failed';
-      order.failureReason = 'Package no longer available';
+      order.deliveryStatus = 'processing';
+      order.metadata = {
+        ...(order.metadata || {}),
+        queuedForProvider: true,
+        queueReason: 'package_unavailable',
+      };
+      order.failureReason = 'Payment received — your order is being processed.';
       await order.save({ session });
       await session.commitTransaction();
       await publishOrderUpdate(order, {
         io,
-        trigger: 'fulfillment.failed',
+        trigger: 'fulfillment.queued',
         previousPaymentStatus,
         previousDeliveryStatus,
       });
       return order;
     }
     if (pkg.serviceType !== 'result_checker' && !pkg.isAvailable) {
-      order.deliveryStatus = 'failed';
-      order.failureReason = 'Package no longer available';
+      order.deliveryStatus = 'processing';
+      order.metadata = {
+        ...(order.metadata || {}),
+        queuedForProvider: true,
+        queueReason: 'package_unavailable',
+      };
+      order.failureReason = 'Payment received — your order is being processed.';
       await order.save({ session });
       await session.commitTransaction();
       await publishOrderUpdate(order, {
         io,
-        trigger: 'fulfillment.failed',
+        trigger: 'fulfillment.queued',
         previousPaymentStatus,
         previousDeliveryStatus,
       });
@@ -310,10 +317,8 @@ export const fulfillOrder = async (orderId, io) => {
       ]);
     } else if (order.serviceType === 'data_bundle') {
       providerResponse = await submitDataBundleOrder(order, pkg);
-      const isMtn = isMtnDataCategory(order.category);
       const { shouldNotify } = applyProviderFulfillment(order, providerResponse, {
-        // MTN stays pending until TopDeals marks delivered/failed (1h30m notice uses pending).
-        successStatus: isMtn ? 'pending' : 'processing',
+        successStatus: 'processing',
       });
 
       await order.save({ session });
@@ -351,9 +356,7 @@ export const fulfillOrder = async (orderId, io) => {
     const order = await Order.findById(orderId);
     if (order && order.paymentStatus === 'paid') {
       const previousDeliveryStatus = order.deliveryStatus;
-      const isMtnData =
-        order.serviceType === 'data_bundle' && isMtnDataCategory(order.category);
-      order.deliveryStatus = isMtnData ? 'pending' : 'processing';
+      order.deliveryStatus = 'processing';
       order.metadata = {
         ...(order.metadata || {}),
         queuedForProvider: true,

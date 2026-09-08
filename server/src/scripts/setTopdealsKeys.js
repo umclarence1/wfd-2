@@ -111,7 +111,16 @@ const run = async () => {
   }
 
   doc.apiProviderSettings = doc.apiProviderSettings || {};
+  doc.apiProviderSettings.forwardingEnabled = true;
   doc.apiProviderSettings.defaultProvider = 'topdealsgh';
+  doc.apiProviderSettings.networkProviders = {
+    MTN: 'topdealsgh',
+    'MTN EXPRESS': 'topdealsgh',
+    Telecel: 'topdealsgh',
+    AirtelTigo: 'topdealsgh',
+    'AirtelTigo Big Time': 'topdealsgh',
+    'MTN AFA': 'topdealsgh',
+  };
   doc.apiProviderSettings.credentials = doc.apiProviderSettings.credentials || {};
   doc.apiProviderSettings.credentials.topdealsgh = {
     apiUrl: env.topdealsgh.apiUrl,

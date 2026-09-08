@@ -72,7 +72,6 @@ export default function PaymentCallbackPage() {
                 <p><strong>Reference:</strong> {order.reference}</p>
                 <p><strong>Product:</strong> {order.packageName}</p>
                 <p><strong>Amount:</strong> {formatCurrency(order.totalAmount)}</p>
-                <p><strong>Status:</strong> {order.deliveryStatus}</p>
                 {(order.checkers?.length || order.checker) && (
                   <div className="mt-4 rounded-xl bg-green-50 p-4 transition-all duration-300 hover:shadow-md">
                     <p className="font-bold">Checker Details</p>

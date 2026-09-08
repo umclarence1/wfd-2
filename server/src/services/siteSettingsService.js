@@ -1,5 +1,4 @@
-import SiteSettings from '../models/SiteSettings.js';
-import { env } from '../config/env.js';
+import { encrypt } from '../utils/encryption.js';
 import {
   API_NETWORKS,
   DEFAULT_API_PROVIDER_SETTINGS,
@@ -192,6 +191,18 @@ export const migrateSiteSettingsOnBoot = async () => {
   canonical.apiProviderSettings = normalizeApiProviderSettingsToTopDeals(
     canonical.apiProviderSettings
   );
+
+  const envApiKey = env.topdealsgh?.apiKey?.trim();
+  const envSecret = env.topdealsgh?.secretKey?.trim();
+  if (envApiKey && envSecret) {
+    canonical.apiProviderSettings.credentials = canonical.apiProviderSettings.credentials || {};
+    canonical.apiProviderSettings.credentials.topdealsgh = {
+      apiUrl: env.topdealsgh.apiUrl,
+      apiKeyEncrypted: encrypt(envApiKey),
+      apiSecretEncrypted: encrypt(envSecret),
+    };
+  }
+
   canonical.markModified('apiProviderSettings');
 
   await canonical.save();

@@ -10,7 +10,7 @@ export const applyProviderFulfillment = (order, providerResponse, { successStatu
   order.providerResponse = providerResponse;
 
   if (providerResponse.queued) {
-    order.deliveryStatus = 'pending';
+    order.deliveryStatus = 'processing';
     order.metadata = {
       ...(order.metadata || {}),
       queuedForProvider: true,
