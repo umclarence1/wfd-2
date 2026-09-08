@@ -167,11 +167,11 @@ export const fulfillOrder = async (orderId, io) => {
       return;
     }
 
-    if (
+    const alreadySubmitted =
       order.deliveryStatus === 'delivered'
-      || (order.deliveryStatus === 'processing' && !order.metadata?.queuedForProvider)
-      || (order.providerReference && !order.metadata?.queuedForProvider)
-    ) {
+      || (Boolean(order.providerReference) && !order.metadata?.queuedForProvider);
+
+    if (alreadySubmitted) {
       await session.abortTransaction();
       return order;
     }

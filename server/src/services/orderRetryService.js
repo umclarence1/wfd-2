@@ -1,13 +1,14 @@
 import { fulfillOrder } from './orderService.js';
-import { findQueuedProviderOrders, findRetryableFailedOrders } from './orderQueueService.js';
+import { findQueuedProviderOrders, findRetryableFailedOrders, findUnsubmittedProviderOrders } from './orderQueueService.js';
 
 export const retryQueuedProviderOrders = async (io, { limit = 25 } = {}) => {
   const queued = await findQueuedProviderOrders(limit);
+  const unsubmitted = await findUnsubmittedProviderOrders(Math.max(5, Math.floor(limit / 2)));
   const failed = await findRetryableFailedOrders(Math.max(5, Math.floor(limit / 2)));
   const seen = new Set();
   const orders = [];
 
-  for (const order of [...queued, ...failed]) {
+  for (const order of [...queued, ...unsubmitted, ...failed]) {
     const id = String(order._id);
     if (seen.has(id)) continue;
     seen.add(id);
