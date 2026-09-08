@@ -8,7 +8,11 @@ import { validateBody } from '../middleware/validate.js';
 import { packageBreakdownSchema } from '../schemas/zodSchemas.js';
 import { getPaymentBreakdown } from '../services/orderService.js';
 import { validatePromoCode } from '../services/promoService.js';
-import { resolveCheckerInStock, syncCheckerPackageAvailability } from '../services/checkerService.js';
+import {
+  getCheckerStockMap,
+  resolveCheckerInStock,
+  syncCheckerPackageAvailability,
+} from '../services/checkerService.js';
 import { withPublicAvailability } from '../utils/packageAvailability.js';
 
 const router = Router();
@@ -26,11 +30,6 @@ router.get(
       category === 'BECE Checker' ||
       category === 'WASSCE Checker';
 
-    if (isCheckerQuery) {
-      await syncCheckerPackageAvailability();
-    }
-
-    // Local DB only — checker stock is mirrored onto Package.isAvailable by sync above.
     const packages = await Package.find(filter)
       .sort({ displayOrder: 1, price: 1 })
       .select(
@@ -38,23 +37,26 @@ router.get(
       )
       .lean();
 
+    const hasCheckerPackages = packages.some((pkg) => pkg.serviceType === 'result_checker');
+
+    let checkerStockMap = null;
+    if (isCheckerQuery || hasCheckerPackages) {
+      await syncCheckerPackageAvailability();
+      checkerStockMap = await getCheckerStockMap();
+    }
+
     const withStock = packages.map((pkg) => {
       if (pkg.serviceType === 'result_checker') {
-        const inStock = pkg.adminPaused ? false : pkg.isAvailable !== false;
+        const type = String(pkg.checkerType || '').toUpperCase();
+        const liveInStock = checkerStockMap ? checkerStockMap[type] === true : pkg.isAvailable !== false;
+        const inStock = pkg.adminPaused ? false : liveInStock;
         return withPublicAvailability(pkg, { inStock });
       }
       return withPublicAvailability(pkg);
     });
 
-    // Refresh stock in the background when listing all packages (includes checkers).
-    if (!isCheckerQuery && packages.some((pkg) => pkg.serviceType === 'result_checker')) {
-      syncCheckerPackageAvailability().catch((err) => {
-        console.error('[CHECKER_STOCK] Background sync failed:', err.message);
-      });
-    }
-
-    // Short CDN/browser cache — packages change rarely; stock is still enforced at checkout.
-    res.set('Cache-Control', 'public, max-age=30, s-maxage=60, stale-while-revalidate=120');
+    // Checker stock is live on every list that includes checkers (homepage uses a dedicated query too).
+    res.set('Cache-Control', isCheckerQuery ? 'no-store' : 'public, max-age=30, s-maxage=60, stale-while-revalidate=120');
     res.json({ success: true, packages: withStock });
   })
 );

@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import api from '../api/client';
 
-const PACKAGES_CACHE_KEY = 'wds_packages_cache_v2';
+const PACKAGES_CACHE_KEY = 'wds_packages_cache_v3';
 
 const readCachedPackages = () => {
   try {
@@ -17,13 +17,11 @@ const readCachedPackages = () => {
 const writeCachedPackages = (packages) => {
   try {
     if (Array.isArray(packages) && packages.length) {
-      // Checker stock changes often — do not cache availability for result checkers.
-      const toStore = packages.map((pkg) =>
-        pkg.serviceType === 'result_checker'
-          ? { ...pkg, isAvailable: true, inStock: true }
-          : pkg
-      );
-      localStorage.setItem(PACKAGES_CACHE_KEY, JSON.stringify(toStore));
+      // Checker stock is live from TopDealsGH — never cache result checkers locally.
+      const toStore = packages.filter((pkg) => pkg.serviceType !== 'result_checker');
+      if (toStore.length) {
+        localStorage.setItem(PACKAGES_CACHE_KEY, JSON.stringify(toStore));
+      }
     }
   } catch {
     // ignore quota / private mode

@@ -106,10 +106,10 @@ export default function DataPlanGrid({ plans = DATA_PLANS, title, subtitle, appe
   const { data: checkerPackages = [], isFetched: checkersFetched } = useCheckerPackages();
 
   const mergedPackages = useMemo(() => {
-    if (!checkerPackages.length) return packages;
     const withoutCheckers = packages.filter((p) => p.serviceType !== 'result_checker');
+    if (!checkersFetched) return withoutCheckers;
     return [...withoutCheckers, ...checkerPackages];
-  }, [packages, checkerPackages]);
+  }, [packages, checkerPackages, checkersFetched]);
 
   const packagesReady = isFetched && mergedPackages.length > 0;
   const checkersReady = checkersFetched || !plans.some((p) => p.id === 'waec');

@@ -3,7 +3,11 @@ import Package from '../models/Package.js';
 import Slider from '../models/Slider.js';
 import SiteSettings from '../models/SiteSettings.js';
 import { ensureSiteSettings } from '../services/siteSettingsService.js';
-import { buildMtnExpressPackages } from '../config/mtnExpressPackages.js';
+import {
+  buildMtnExpressPackages,
+  MTN_EXPRESS_BUNDLES,
+  MTN_EXPRESS_DEFAULT_PRICES,
+} from '../config/mtnExpressPackages.js';
 import { ensureCheckerPackages, syncCheckerPackageAvailability } from '../services/checkerService.js';
 
 const MTN_BUNDLES = ['10GB', '15GB', '20GB', '25GB', '30GB', '35GB', '40GB', '45GB', '50GB', '100GB', '150GB'];
@@ -30,6 +34,33 @@ const buildInitialPackages = () => {
     { name: 'WASSCE Result Checker', category: 'WASSCE Checker', price: 17, serviceType: 'result_checker', checkerType: 'WASSCE', displayOrder: 0, isActive: true, isAvailable: true }
   );
   return packages;
+};
+
+/** Ensure all MTN EXPRESS bundle sizes exist (synced with TopDealsGH network). */
+const ensureMtnExpressPackages = async () => {
+  const existing = await Package.find({ category: 'MTN EXPRESS' }).lean();
+  if (!existing.length) {
+    const packages = buildMtnExpressPackages();
+    await Package.insertMany(packages);
+    console.log(`Created ${packages.length} MTN EXPRESS packages`);
+    return;
+  }
+
+  const existingSizes = new Set(existing.map((p) => p.dataAmount));
+  const missing = MTN_EXPRESS_BUNDLES.filter((size) => !existingSizes.has(size));
+  if (missing.length) {
+    const toInsert = buildMtnExpressPackages().filter((p) => missing.includes(p.dataAmount));
+    await Package.insertMany(toInsert);
+    console.log(`Added ${toInsert.length} missing MTN EXPRESS package(s)`);
+  }
+
+  for (const size of MTN_EXPRESS_BUNDLES) {
+    const price = MTN_EXPRESS_DEFAULT_PRICES[size];
+    await Package.updateOne(
+      { category: 'MTN EXPRESS', dataAmount: size },
+      { $set: { price, name: `MTN EXPRESS ${size}`, isActive: true, adminPaused: false } }
+    );
+  }
 };
 
 export const autoSeedIfEmpty = async () => {
@@ -82,10 +113,7 @@ export const autoSeedIfEmpty = async () => {
     console.log(`Created ${mtnPackages.length} MTN packages`);
   }
 
-  if ((await Package.countDocuments({ category: 'MTN EXPRESS' })) === 0) {
-    await Package.insertMany(buildMtnExpressPackages());
-    console.log(`Created ${buildMtnExpressPackages().length} MTN EXPRESS packages`);
-  }
+  await ensureMtnExpressPackages();
 
   await Package.updateMany(
     { category: 'MTN AFA', afaType: 'new', name: { $ne: 'MTN AFA Registration' } },
