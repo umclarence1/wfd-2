@@ -32,7 +32,21 @@ export default function PaymentCallbackPage() {
       ? `/orders/verify/${reference}?email=${encodeURIComponent(email)}`
       : `/orders/verify/${reference}`;
 
-    api.get(verifyUrl)
+    const verifyWithRetry = async () => {
+      const delays = [0, 2000, 4000, 6000, 8000];
+      let lastError;
+      for (const delay of delays) {
+        if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+        try {
+          return await api.get(verifyUrl);
+        } catch (err) {
+          lastError = err;
+        }
+      }
+      throw lastError;
+    };
+
+    verifyWithRetry()
       .then(({ data }) => {
         setOrder(data.order);
         setStatus('success');
@@ -86,8 +100,11 @@ export default function PaymentCallbackPage() {
         {status === 'error' && (
           <>
             <XCircle className="mx-auto h-16 w-16 text-red-500" />
-            <h1 className="mt-4 text-2xl font-bold">Payment Failed</h1>
-            <p className="mt-2 text-gray-600">Something went wrong. Please try again or contact support.</p>
+            <h1 className="mt-4 text-2xl font-bold">Payment Not Completed</h1>
+            <p className="mt-2 text-gray-600">
+              Payment was not completed, so no order was created. If you approved payment on your phone
+              (*170#), wait a moment and refresh this page.
+            </p>
             <Link to="/services" className="btn-primary mt-6 inline-block">Back to Services</Link>
           </>
         )}

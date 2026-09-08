@@ -17,6 +17,7 @@ import {
   processFreeOrder,
   getPaymentBreakdown,
 } from '../services/orderService.js';
+import { createPendingPayment } from '../services/pendingPaymentService.js';
 import { initializePayment, getPublicKey, verifyPayment } from '../services/paystackService.js';
 import { markOrderPaidFromPaystack } from '../services/paymentProcessingService.js';
 import { publishOrderUpdate } from '../services/orderWebhookService.js';
@@ -50,16 +51,15 @@ router.post(
   asyncHandler(async (req, res) => {
     const idempotencyKey = req.headers['idempotency-key']?.slice(0, 64) || null;
     const validated = await validateOrderInput(req.body, req.user);
-    const order = await createOrder(validated, req.user, idempotencyKey);
-
-    await publishOrderUpdate(order, {
-      io: req.app.get('io'),
-      trigger: 'order.created',
-      event: 'order.created',
-      force: true,
-    });
 
     if (validated.pricing.isFreeOrder === true) {
+      const order = await createOrder(validated, req.user, idempotencyKey);
+      await publishOrderUpdate(order, {
+        io: req.app.get('io'),
+        trigger: 'order.created',
+        event: 'order.created',
+        force: true,
+      });
       await processFreeOrder(order, validated.promoResult, req.user, req.app.get('io'));
       return res.json({
         success: true,
@@ -68,25 +68,48 @@ router.post(
       });
     }
 
-    if (!(order.totalAmount > 0)) {
+    const checkout = await createPendingPayment(validated, req.user, idempotencyKey);
+    if (checkout.kind === 'order') {
+      const order = checkout.doc;
+      if (order.paymentStatus === 'paid') {
+        return res.json({
+          success: true,
+          order: {
+            reference: order.reference,
+            paymentReference: order.paymentReference,
+            totalAmount: order.totalAmount,
+            alreadyPaid: true,
+          },
+          message: 'Order already paid.',
+        });
+      }
+      throw new AppError('Duplicate checkout request. Complete payment or try again.', 409);
+    }
+
+    const pending = checkout.doc;
+
+    if (!(pending.totalAmount > 0)) {
       throw new AppError('Invalid order amount. Contact support.', 400);
     }
 
     const payment = await initializePayment({
-      email: order.email,
-      amount: order.totalAmount,
-      reference: order.paymentReference,
-      metadata: { orderReference: order.reference, packageId: order.package.toString() },
+      email: pending.email,
+      amount: pending.totalAmount,
+      reference: pending.paymentReference,
+      metadata: {
+        packageId: pending.package.toString(),
+        phone: pending.phone,
+        category: pending.category,
+      },
     });
 
     res.json({
       success: true,
-      order: {
-        reference: order.reference,
-        paymentReference: order.paymentReference,
-        totalAmount: order.totalAmount,
-        packagePrice: order.packagePrice,
-        paystackCharge: order.paystackCharge,
+      checkout: {
+        paymentReference: pending.paymentReference,
+        totalAmount: pending.totalAmount,
+        packagePrice: pending.packagePrice,
+        paystackCharge: pending.paystackCharge,
       },
       payment: {
         authorizationUrl: payment.authorization_url,
@@ -103,17 +126,18 @@ router.get(
   paymentLimiter,
   validateParams(paymentReferenceSchema),
   asyncHandler(async (req, res) => {
-    const order = await Order.findOne({ paymentReference: req.params.reference });
-    if (!order) throw new AppError('Order not found.', 404);
+    const paymentRef = req.params.reference;
+    const order = await Order.findOne({ paymentReference: paymentRef });
 
-    // Checker serial/PIN only when the requester proves ownership via matching email.
     const emailClaim = String(req.query.email || req.headers['x-order-email'] || '')
       .trim()
       .toLowerCase();
-    const ownsOrder = Boolean(emailClaim && emailClaim === String(order.email || '').toLowerCase());
+    const ownsOrder = Boolean(
+      order && emailClaim && emailClaim === String(order.email || '').toLowerCase()
+    );
     const includeChecker = ownsOrder;
 
-    if (order.paymentStatus === 'paid') {
+    if (order?.paymentStatus === 'paid') {
       const updated = includeChecker
         ? await Order.findById(order._id)
             .populate('checker', 'serialNumber pin checkerType')
@@ -126,19 +150,10 @@ router.get(
       });
     }
 
-    const payment = await verifyPayment(req.params.reference);
+    const payment = await verifyPayment(paymentRef);
 
     if (payment.status !== 'success') {
-      const previousPaymentStatus = order.paymentStatus;
-      order.paymentStatus = 'failed';
-      await order.save();
-      await publishOrderUpdate(order, {
-        io: req.app.get('io'),
-        trigger: 'payment.failed',
-        event: 'order.payment.failed',
-        previousPaymentStatus,
-      });
-      throw new AppError('Payment verification failed.', 400);
+      throw new AppError('Payment not completed. No order was created.', 400);
     }
 
     if (payment.amount == null) {
@@ -146,7 +161,7 @@ router.get(
     }
     const amountPaid = payment.amount / 100;
     const result = await markOrderPaidFromPaystack({
-      paymentReference: req.params.reference,
+      paymentReference: paymentRef,
       paystackTransactionId: payment.id,
       amountPaid,
       io: req.app.get('io'),

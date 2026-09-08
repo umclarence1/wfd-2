@@ -233,7 +233,10 @@ export default function PurchaseForm({
       }
 
       if (data.payment?.authorizationUrl) {
+        sessionStorage.setItem('wds_payment_reference', data.checkout?.paymentReference || '');
         window.location.href = data.payment.authorizationUrl;
+      } else {
+        toast('Could not start payment. Please try again.', 'error');
       }
     } catch (err) {
       toast(getOfflineAwareErrorMessage(err, 'Failed to create order.'), 'error');

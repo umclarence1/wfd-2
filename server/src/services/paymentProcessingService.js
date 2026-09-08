@@ -3,6 +3,7 @@ import PromoCode from '../models/PromoCode.js';
 import { fulfillOrder } from './orderService.js';
 import { retryQueuedProviderOrders } from './orderRetryService.js';
 import { redeemPromoCodeAtomic } from './promoService.js';
+import { resolveOrderForPayment } from './pendingPaymentService.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { logSecurityEvent } from './securityLogger.js';
 import { publishOrderUpdate } from './orderWebhookService.js';
@@ -13,8 +14,25 @@ export const markOrderPaidFromPaystack = async ({
   amountPaid,
   io,
 }) => {
-  const order = await Order.findOneAndUpdate(
-    { paymentReference, paymentStatus: { $ne: 'paid' } },
+  let order = await Order.findOne({ paymentReference });
+
+  if (order?.paymentStatus === 'paid') {
+    logSecurityEvent('duplicate_payment_webhook', { paymentReference });
+    return { order, duplicate: true };
+  }
+
+  if (!order) {
+    order = await resolveOrderForPayment(paymentReference);
+    await publishOrderUpdate(order, {
+      io,
+      trigger: 'order.created',
+      event: 'order.created',
+      force: true,
+    });
+  }
+
+  order = await Order.findOneAndUpdate(
+    { _id: order._id, paymentStatus: { $ne: 'paid' } },
     {
       paymentStatus: 'paid',
       paystackTransactionId: paystackTransactionId?.toString(),
@@ -25,7 +43,6 @@ export const markOrderPaidFromPaystack = async ({
   if (!order) {
     const existing = await Order.findOne({ paymentReference });
     if (existing?.paymentStatus === 'paid') {
-      logSecurityEvent('duplicate_payment_webhook', { paymentReference });
       return { order: existing, duplicate: true };
     }
     throw new AppError('Order not found for payment reference.', 404);

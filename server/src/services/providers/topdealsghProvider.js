@@ -13,7 +13,11 @@ import {
 
 const NETWORK_MAP = {
   MTN: 'MTN',
-  'MTN EXPRESS': 'MTN',
+  'MTN EXPRESS': 'MTN Express',
+  'MTN Express': 'MTN Express',
+  mtn_express: 'MTN Express',
+  mtnexpress: 'MTN Express',
+  mtnxp: 'MTN Express',
   Telecel: 'Telecel',
   AirtelTigo: 'AirtelTigo',
   'AirtelTigo Big Time': 'AirtelTigo',
@@ -50,7 +54,17 @@ const request = async (creds, { method, path, data, params, timeout = 30000 }) =
   return response;
 };
 
-export const mapTopDealsNetwork = (category) => NETWORK_MAP[category] || category;
+export const mapTopDealsNetwork = (category) => {
+  const key = String(category || '').trim();
+  if (!key) return key;
+  if (NETWORK_MAP[key]) return NETWORK_MAP[key];
+  const upper = key.toUpperCase();
+  if (upper === 'MTN EXPRESS' || upper === 'MTNEXPRESS' || upper === 'MTNXP') {
+    return 'MTN Express';
+  }
+  if (upper === 'MTN') return 'MTN';
+  return NETWORK_MAP[upper] || key;
+};
 
 export const testTopDealsGhConnection = async (creds) => {
   try {

@@ -37,8 +37,8 @@ const buildQueuedPayload = (order) => ({
 });
 
 export const maybeSendVerificationEmail = async (order, previousDeliveryStatus, { force = false } = {}) => {
-  // Auto-sync skips MTN (1h30m delayed notice). Admin manual "verification" can force it.
-  if (!force && isMtnDataCategory(order.category)) return false;
+  // Never send MTN / MTN EXPRESS verification emails to customers.
+  if (isMtnDataCategory(order.category)) return false;
   if (order.deliveryStatus !== 'verification') return false;
   if (previousDeliveryStatus === 'verification') return false;
   if (order.metadata?.verificationEmailSentAt) return false;
