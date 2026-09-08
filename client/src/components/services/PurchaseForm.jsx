@@ -226,7 +226,7 @@ export default function PurchaseForm({
         headers: { 'Idempotency-Key': idempotencyKey },
       });
 
-      if (data.order.isFreeOrder) {
+      if (data.order?.isFreeOrder) {
         toast('Order completed successfully!', 'success');
         navigate(`/payment/callback?reference=${data.order.reference}&free=true`);
         return;

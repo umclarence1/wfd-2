@@ -83,7 +83,33 @@ router.post(
           message: 'Order already paid.',
         });
       }
-      throw new AppError('Duplicate checkout request. Complete payment or try again.', 409);
+
+      // Legacy unpaid order — let customer retry Paystack with the same payment reference.
+      const payment = await initializePayment({
+        email: order.email,
+        amount: order.totalAmount,
+        reference: order.paymentReference,
+        metadata: {
+          packageId: order.package.toString(),
+          phone: order.phone,
+          category: order.category,
+        },
+      });
+
+      return res.json({
+        success: true,
+        checkout: {
+          paymentReference: order.paymentReference,
+          totalAmount: order.totalAmount,
+          packagePrice: order.packagePrice,
+          paystackCharge: order.paystackCharge,
+        },
+        payment: {
+          authorizationUrl: payment.authorization_url,
+          accessCode: payment.access_code,
+          publicKey: getPublicKey(),
+        },
+      });
     }
 
     const pending = checkout.doc;
@@ -199,7 +225,7 @@ router.post(
     if (!emailResult.valid) throw new AppError(emailResult.error, 400);
     await verifyOTP(emailResult.normalized, otp, 'order_history');
 
-    const orders = await Order.find({ email: emailResult.normalized })
+    const orders = await Order.find({ email: emailResult.normalized, paymentStatus: 'paid' })
       .sort({ createdAt: -1 })
       .select(
         'reference packageName phone packagePrice totalAmount deliveryStatus paymentStatus createdAt category serviceType checker checkers'
@@ -225,7 +251,7 @@ router.get(
   protect,
   noCache,
   asyncHandler(async (req, res) => {
-    const orders = await Order.find({ user: req.user._id })
+    const orders = await Order.find({ user: req.user._id, paymentStatus: 'paid' })
       .sort({ createdAt: -1 })
       .populate('checker', 'serialNumber pin checkerType')
       .populate('checkers', 'serialNumber pin checkerType')
@@ -247,7 +273,11 @@ router.get(
       throw new AppError('Email is required to look up this order.', 400);
     }
 
-    const order = await Order.findOne({ reference: req.params.reference, email })
+    const order = await Order.findOne({
+      reference: req.params.reference,
+      email,
+      paymentStatus: 'paid',
+    })
       .populate('checker', 'serialNumber pin checkerType')
       .populate('checkers', 'serialNumber pin checkerType')
       .lean();
