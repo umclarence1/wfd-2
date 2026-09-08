@@ -5,6 +5,8 @@ import { checkProviderStatus } from './providerService.js';
 import { resolveProviderForCategory } from './apiProviderService.js';
 import { sendNumberVerificationEmail } from './emailService.js';
 import { publishOrderUpdate } from './orderWebhookService.js';
+import { isRealProviderReference } from '../utils/providerReference.js';
+import { fulfillOrder } from './orderService.js';
 import { isMtnDataCategory } from '../utils/validation.js';
 
 const API_SERVICE_TYPES = new Set(['data_bundle', 'afa_registration']);
@@ -21,16 +23,22 @@ const mapProviderStatusToDelivery = (providerStatus) => {
 const providerDisplayName = (providerId) =>
   (providerId && PROVIDER_DEFINITIONS[providerId]?.name) || providerId || '—';
 
-const buildQueuedPayload = (order) => ({
+const buildQueuedPayload = (order, { message, providerStatus = 'queued' } = {}) => ({
   orderId: order._id,
   reference: order.reference,
-  apiReference: order.reference,
+  apiReference: isRealProviderReference(order.providerReference, order.reference)
+    ? order.providerReference
+    : null,
   providerId: order.providerId || null,
   providerName: providerDisplayName(order.providerId),
-  providerStatus: 'queued',
+  providerStatus,
   deliveryStatus: order.deliveryStatus,
   queueReason: order.metadata?.queueReason || null,
-  message: order.failureReason || 'Order is queued and not yet sent to the API.',
+  message:
+    message
+    || order.failureReason
+    || order.metadata?.lastFulfillmentError
+    || 'Order is queued and not yet sent to the API.',
   synced: false,
   checkedAt: new Date().toISOString(),
   raw: null,
@@ -73,14 +81,41 @@ export const syncOrderProviderStatus = async (orderId, io) => {
     };
   }
 
-  if (order.metadata?.queuedForProvider && !order.providerReference) {
+  if (order.metadata?.queuedForProvider && !isRealProviderReference(order.providerReference, order.reference)) {
     return buildQueuedPayload(order);
   }
 
-  const providerId = order.providerId || (await resolveProviderForCategory(order.category));
-  const apiReference = order.providerReference || order.reference;
+  if (
+    order.paymentStatus === 'paid'
+    && !isRealProviderReference(order.providerReference, order.reference)
+  ) {
+    try {
+      await fulfillOrder(order._id, io);
+    } catch (err) {
+      console.error('[PROVIDER_SYNC] Auto-submit failed:', order.reference, err.message);
+      return buildQueuedPayload(order, {
+        providerStatus: 'submit_failed',
+        message: err.message || 'Could not submit order to TopDealsGH.',
+      });
+    }
 
-  const result = await checkProviderStatus(apiReference, order.category, providerId);
+    const refreshed = await Order.findById(orderId);
+    if (!isRealProviderReference(refreshed?.providerReference, refreshed?.reference)) {
+      return buildQueuedPayload(refreshed || order, {
+        providerStatus: 'queued',
+        message:
+          refreshed?.failureReason
+          || refreshed?.metadata?.lastFulfillmentError
+          || 'Payment received — submitting to TopDealsGH. Refresh in a moment.',
+      });
+    }
+    order = refreshed;
+  }
+
+  const providerId = order.providerId || (await resolveProviderForCategory(order.category));
+  const apiReference = order.providerReference;
+
+  const result = await checkProviderStatus(apiReference, order.category, providerId, order.reference);
   const mappedDelivery = mapProviderStatusToDelivery(result.status);
 
   let synced = false;

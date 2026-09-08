@@ -9,6 +9,7 @@ import { PROVIDER_IDS, isAlwaysApiNetwork, migrateProviderId } from '../config/a
 import { QUEUE_REASONS } from '../utils/providerQueue.js';
 import { getTopDealsGhOrderStatus } from './providers/topdealsghProvider.js';
 import { getSmartDataHubDeliveryStatus } from './providers/smartDataHubProvider.js';
+import { isRealProviderReference } from '../utils/providerReference.js';
 
 const queueForwardingOff = (order, message) => ({
   success: true,
@@ -62,7 +63,11 @@ export const submitAFARegistration = async (order, pkg) => {
   return submitViaProvider(providerId, order, pkg);
 };
 
-export const checkProviderStatus = async (providerReference, category, providerId) => {
+export const checkProviderStatus = async (providerReference, category, providerId, localReference) => {
+  if (!isRealProviderReference(providerReference, localReference)) {
+    return { status: 'queued', raw: { message: 'Not yet submitted to provider API.' } };
+  }
+
   const resolvedProvider = migrateProviderId(
     providerId || (category ? await resolveProviderForCategory(category) : null)
   );

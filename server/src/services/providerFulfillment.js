@@ -1,10 +1,12 @@
 import { QUEUE_REASONS } from '../utils/providerQueue.js';
+import { isRealProviderReference } from '../utils/providerReference.js';
 
 export const applyProviderFulfillment = (order, providerResponse, { successStatus }) => {
   order.providerId = providerResponse.providerId || order.providerId || null;
 
-  if (providerResponse.reference) {
-    order.providerReference = String(providerResponse.reference);
+  const candidateRef = providerResponse.orderId || providerResponse.reference;
+  if (candidateRef && isRealProviderReference(candidateRef, order.reference)) {
+    order.providerReference = String(candidateRef);
   }
 
   order.providerResponse = providerResponse;

@@ -19,6 +19,7 @@ import { PROVIDER_IDS } from '../config/apiProviders.js';
 import { submitTopDealsGhCheckerPurchase } from './providers/topdealsghProvider.js';
 import Checker from '../models/Checker.js';
 import { QUEUE_REASONS } from '../utils/providerQueue.js';
+import { isRealProviderReference } from '../utils/providerReference.js';
 import {
   sendOrderConfirmationEmail,
   sendCheckerDeliveryEmail,
@@ -169,7 +170,8 @@ export const fulfillOrder = async (orderId, io) => {
 
     const alreadySubmitted =
       order.deliveryStatus === 'delivered'
-      || (Boolean(order.providerReference) && !order.metadata?.queuedForProvider);
+      || (isRealProviderReference(order.providerReference, order.reference)
+        && !order.metadata?.queuedForProvider);
 
     if (alreadySubmitted) {
       await session.abortTransaction();

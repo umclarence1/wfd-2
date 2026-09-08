@@ -8,6 +8,8 @@ const providerStatusClass = {
   processing: 'bg-blue-100 text-blue-800',
   failed: 'bg-red-100 text-red-800',
   queued: 'bg-amber-100 text-amber-800',
+  submitting: 'bg-amber-100 text-amber-800',
+  submit_failed: 'bg-red-100 text-red-800',
   unknown: 'bg-slate-100 text-slate-700',
 };
 
@@ -70,7 +72,7 @@ export default function OrderProviderStatusModal({ order, open, onClose, onSynce
             <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
               <p className="text-xs font-bold uppercase tracking-wide text-slate-500">API reference</p>
               <p className="mt-1 break-all font-mono text-sm font-semibold text-slate-900">
-                {status?.apiReference || order.providerReference || order.reference}
+                {status?.apiReference || (status?.providerStatus === 'queued' ? 'Not submitted yet' : order.providerReference || '—')}
               </p>
             </div>
             <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">

@@ -344,7 +344,13 @@ router.post('/orders/:id/resubmit', requirePermission('orders'), asyncHandler(as
   const order = await Order.findById(req.params.id);
   if (!order) throw new AppError('Order not found.', 404);
   order.retryCount += 1;
-  order.deliveryStatus = 'pending';
+  order.deliveryStatus = 'processing';
+  order.providerReference = undefined;
+  order.metadata = {
+    ...(order.metadata || {}),
+    queuedForProvider: false,
+    queueReason: undefined,
+  };
   await order.save();
   await fulfillOrder(order._id, req.app.get('io'));
   res.json({ success: true, message: 'Order resubmitted.' });
