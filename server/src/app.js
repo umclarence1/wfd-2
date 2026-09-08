@@ -19,6 +19,11 @@ import cronRoutes from './routes/cronRoutes.js';
 import topdealsWebhookRoutes from './routes/topdealsWebhookRoutes.js';
 import { handlePaystackWebhook } from './routes/paymentRoutes.js';
 import { getSiteSettings } from './services/siteSettingsService.js';
+import {
+  getProviderCredentials,
+  isApiForwardingEnabled,
+} from './services/apiProviderService.js';
+import { PROVIDER_IDS } from './config/apiProviders.js';
 
 const noopIo = { emit: () => {}, on: () => {} };
 
@@ -112,10 +117,23 @@ export const createApp = (io = noopIo) => {
     }
     const dbState = mongoose.connection.readyState;
     const dbStatus = { 0: 'disconnected', 1: 'connected', 2: 'connecting', 3: 'disconnecting' }[dbState] || 'unknown';
+    let topdealsConfigured = false;
+    let forwardingEnabled = false;
+    if (dbState === 1) {
+      try {
+        const creds = await getProviderCredentials(PROVIDER_IDS.TOPDEALSGH);
+        topdealsConfigured = Boolean(creds.apiKey && creds.apiSecret);
+        forwardingEnabled = await isApiForwardingEnabled();
+      } catch {
+        // omit provider flags
+      }
+    }
     const payload = {
       success: true,
       message: 'Wilberforce Data Service API is running',
       database: dbStatus,
+      topdealsConfigured,
+      forwardingEnabled,
     };
     if (env.nodeEnv !== 'production') {
       payload.env = process.env.NODE_ENV || 'development';

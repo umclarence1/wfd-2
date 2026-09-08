@@ -193,6 +193,13 @@ export const migrateSiteSettingsOnBoot = async () => {
   canonical.apiProviderSettings = normalizeApiProviderSettingsToTopDeals(
     canonical.apiProviderSettings
   );
+  canonical.apiProviderSettings.forwardingEnabled = true;
+  canonical.apiProviderSettings.defaultProvider = PROVIDER_IDS.TOPDEALSGH;
+  for (const { key } of API_NETWORKS) {
+    if (!isAlwaysApiNetwork(key)) {
+      canonical.apiProviderSettings.networkProviders[key] = PROVIDER_IDS.TOPDEALSGH;
+    }
+  }
 
   const envApiKey = env.topdealsgh?.apiKey?.trim();
   const envSecret = env.topdealsgh?.secretKey?.trim();

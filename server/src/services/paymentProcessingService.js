@@ -10,6 +10,7 @@ import {
 import { AppError } from '../middleware/errorHandler.js';
 import { logSecurityEvent } from './securityLogger.js';
 import { publishOrderUpdate } from './orderWebhookService.js';
+import { isRealProviderReference } from '../utils/providerReference.js';
 
 const AMOUNT_TOLERANCE = 0.02;
 
@@ -122,6 +123,20 @@ export const markOrderPaidFromPaystack = async ({
     await fulfillOrder(order._id, io);
   } catch (err) {
     console.error('[PAYMENT] Fulfillment error after Paystack payment:', order.reference, err.message);
+  }
+
+  // Second pass — cover race where first fulfill returned early.
+  const afterFulfill = await Order.findById(order._id);
+  if (
+    afterFulfill?.paymentStatus === 'paid'
+    && !isRealProviderReference(afterFulfill.providerReference, afterFulfill.reference)
+    && afterFulfill.serviceType !== 'result_checker'
+  ) {
+    try {
+      await fulfillOrder(afterFulfill._id, io);
+    } catch (err) {
+      console.error('[PAYMENT] Second fulfillment attempt failed:', afterFulfill.reference, err.message);
+    }
   }
 
   retryQueuedProviderOrders(io).catch(() => {});
