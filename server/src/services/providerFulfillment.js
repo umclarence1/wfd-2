@@ -34,12 +34,16 @@ export const applyProviderFulfillment = (order, providerResponse, { successStatu
     return { shouldNotify: true, queued: false };
   }
 
-  order.deliveryStatus = 'failed';
-  order.failureReason = 'We could not complete delivery at this time. Please contact support if this persists.';
+  // Paid orders stay processing — background retry will re-submit to the provider.
+  order.deliveryStatus = 'processing';
+  order.failureReason = 'Payment received — your order is being processed.';
   order.retryCount = (order.retryCount || 0) + 1;
   order.metadata = {
     ...(order.metadata || {}),
-    queuedForProvider: false,
+    queuedForProvider: true,
+    queueReason: providerResponse.queueReason || 'provider_rejected',
+    lastProviderError: providerResponse.message || 'Provider rejected submission.',
+    lastQueueAt: new Date().toISOString(),
   };
-  return { shouldNotify: false, queued: false };
+  return { shouldNotify: false, queued: true };
 };

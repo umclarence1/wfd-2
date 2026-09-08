@@ -137,6 +137,29 @@ export const autoSeedIfEmpty = async () => {
     console.error('[CHECKER_STOCK] Boot sync failed:', err.message);
   }
 
+  // Remove abandoned unpaid orders (checkout intent only — no order until Paystack confirms).
+  const removedUnpaid = await Order.deleteMany({
+    paymentStatus: { $ne: 'paid' },
+    isFreeOrder: { $ne: true },
+  });
+  if (removedUnpaid.deletedCount) {
+    console.log(`Removed ${removedUnpaid.deletedCount} unpaid order(s) from legacy checkout flow.`);
+  }
+
+  // Paid orders should never sit at pending/failed in admin.
+  const repairedPaid = await Order.updateMany(
+    { paymentStatus: 'paid', deliveryStatus: { $in: ['pending', 'failed'] } },
+    {
+      $set: {
+        deliveryStatus: 'processing',
+        failureReason: 'Payment received — your order is being processed.',
+      },
+    }
+  );
+  if (repairedPaid.modifiedCount) {
+    console.log(`Set ${repairedPaid.modifiedCount} paid order(s) to processing.`);
+  }
+
   await Package.updateMany(
     { category: 'MTN AFA', afaType: { $in: ['renewal', 'status_check'] } },
     { isActive: false, isAvailable: false }

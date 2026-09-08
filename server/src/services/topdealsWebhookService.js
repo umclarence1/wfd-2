@@ -6,7 +6,6 @@ import {
 import { maybeSendVerificationEmail } from './orderProviderStatusService.js';
 import { PROVIDER_IDS } from '../config/apiProviders.js';
 import { publishOrderUpdate } from './orderWebhookService.js';
-import { isMtnDataCategory } from '../utils/validation.js';
 
 const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -72,14 +71,24 @@ export const applyTopDealsWebhook = async (rawPayload, io) => {
   const previousPayment = order.paymentStatus;
   let synced = false;
 
-  const isMtnData = order.serviceType === 'data_bundle' && isMtnDataCategory(order.category);
-
   if (deliveryStatus && deliveryStatus !== order.deliveryStatus) {
-    // MTN data stays pending through processing/verification so the 1h30m notice can fire.
-    if (isMtnData && ['processing', 'verification'].includes(deliveryStatus)) {
-      // keep pending; still record webhook metadata below
-    } else if (!(order.deliveryStatus === 'verification' && deliveryStatus === 'processing')) {
-      order.deliveryStatus = deliveryStatus;
+    let nextStatus = deliveryStatus;
+    if (order.paymentStatus === 'paid' && ['failed', 'cancelled', 'refunded'].includes(nextStatus)) {
+      nextStatus = 'processing';
+      order.metadata = {
+        ...(order.metadata || {}),
+        queuedForProvider: true,
+        queueReason: 'provider_reported_failure',
+        lastProviderError: payload.message || `Provider reported ${deliveryStatus}.`,
+      };
+    } else if (order.paymentStatus === 'paid' && nextStatus === 'pending') {
+      nextStatus = 'processing';
+    } else if (order.deliveryStatus === 'verification' && nextStatus === 'processing') {
+      nextStatus = order.deliveryStatus;
+    }
+
+    if (nextStatus !== order.deliveryStatus) {
+      order.deliveryStatus = nextStatus;
       synced = true;
     }
   }
@@ -122,11 +131,10 @@ export const applyTopDealsWebhook = async (rawPayload, io) => {
     queuedForProvider: false,
   };
 
-  if (['failed', 'cancelled', 'refunded'].includes(order.deliveryStatus)) {
-    order.failureReason =
-      payload.message || `Provider reported ${order.deliveryStatus}.`;
-  } else if (order.deliveryStatus === 'delivered' || order.deliveryStatus === 'verification') {
+  if (order.deliveryStatus === 'delivered' || order.deliveryStatus === 'verification') {
     order.failureReason = undefined;
+  } else if (order.deliveryStatus === 'processing' && order.metadata?.queuedForProvider) {
+    order.failureReason = 'Payment received — your order is being processed.';
   }
 
   const emailed = await maybeSendVerificationEmail(order, previousDelivery);

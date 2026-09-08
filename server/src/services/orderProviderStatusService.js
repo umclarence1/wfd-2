@@ -88,19 +88,24 @@ export const syncOrderProviderStatus = async (orderId, io) => {
   const previousPayment = order.paymentStatus;
 
   if (mappedDelivery && mappedDelivery !== order.deliveryStatus) {
-    const isMtnData =
-      order.serviceType === 'data_bundle' && isMtnDataCategory(order.category);
+    let nextStatus = mappedDelivery;
 
-    // MTN data stays pending through processing/verification (1h30m pending notice).
-    if (isMtnData && ['processing', 'verification'].includes(mappedDelivery)) {
-      // no-op for deliveryStatus
-    } else if (
-      order.deliveryStatus === 'verification' &&
-      mappedDelivery === 'processing'
-    ) {
-      // keep verification until delivered/failed
-    } else {
-      order.deliveryStatus = mappedDelivery;
+    if (order.paymentStatus === 'paid' && nextStatus === 'failed') {
+      nextStatus = 'processing';
+      order.metadata = {
+        ...(order.metadata || {}),
+        queuedForProvider: true,
+        queueReason: 'provider_reported_failure',
+      };
+      order.failureReason = 'Payment received — your order is being processed.';
+    } else if (order.paymentStatus === 'paid' && nextStatus === 'pending') {
+      nextStatus = 'processing';
+    } else if (order.deliveryStatus === 'verification' && nextStatus === 'processing') {
+      nextStatus = order.deliveryStatus;
+    }
+
+    if (nextStatus !== order.deliveryStatus) {
+      order.deliveryStatus = nextStatus;
       synced = true;
     }
   }

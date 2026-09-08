@@ -68,7 +68,7 @@ router.post(
       });
     }
 
-    const checkout = await createPendingPayment(validated, req.user, idempotencyKey);
+    let checkout = await createPendingPayment(validated, req.user, idempotencyKey);
     if (checkout.kind === 'order') {
       const order = checkout.doc;
       if (order.paymentStatus === 'paid') {
@@ -84,32 +84,12 @@ router.post(
         });
       }
 
-      // Legacy unpaid order — let customer retry Paystack with the same payment reference.
-      const payment = await initializePayment({
-        email: order.email,
-        amount: order.totalAmount,
-        reference: order.paymentReference,
-        metadata: {
-          packageId: order.package.toString(),
-          phone: order.phone,
-          category: order.category,
-        },
-      });
-
-      return res.json({
-        success: true,
-        checkout: {
-          paymentReference: order.paymentReference,
-          totalAmount: order.totalAmount,
-          packagePrice: order.packagePrice,
-          paystackCharge: order.paystackCharge,
-        },
-        payment: {
-          authorizationUrl: payment.authorization_url,
-          accessCode: payment.access_code,
-          publicKey: getPublicKey(),
-        },
-      });
+      // Legacy unpaid order — remove it; no order exists until payment succeeds.
+      await Order.deleteOne({ _id: order._id, paymentStatus: { $ne: 'paid' } });
+      checkout = await createPendingPayment(validated, req.user, idempotencyKey);
+      if (checkout.kind !== 'pending') {
+        throw new AppError('Could not start checkout. Please try again.', 500);
+      }
     }
 
     const pending = checkout.doc;

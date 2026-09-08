@@ -62,7 +62,8 @@ export const createPendingPayment = async (validated, user, idempotencyKey) => {
   }
 };
 
-export const createOrderFromPendingPayment = async (pending) => {
+/** Create a paid order only after Paystack confirms payment — never before. */
+export const createOrderFromPendingPayment = async (pending, { paystackTransactionId } = {}) => {
   const reference = generateReference('ORD');
 
   try {
@@ -84,8 +85,9 @@ export const createOrderFromPendingPayment = async (pending) => {
       isFreeOrder: false,
       paymentReference: pending.paymentReference,
       idempotencyKey: pending.idempotencyKey || undefined,
-      paymentStatus: 'pending',
-      deliveryStatus: 'pending',
+      paymentStatus: 'paid',
+      deliveryStatus: 'processing',
+      paystackTransactionId: paystackTransactionId?.toString(),
     });
     await PendingPayment.deleteOne({ _id: pending._id });
     return order;
@@ -109,16 +111,4 @@ export const findPendingPayment = async (paymentReference) => {
     return null;
   }
   return pending;
-};
-
-export const resolveOrderForPayment = async (paymentReference) => {
-  const order = await Order.findOne({ paymentReference });
-  if (order) return order;
-
-  const pending = await findPendingPayment(paymentReference);
-  if (!pending) {
-    throw new AppError('Checkout not found or expired. Please try again.', 404);
-  }
-
-  return createOrderFromPendingPayment(pending);
 };

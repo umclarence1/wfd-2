@@ -3,7 +3,10 @@ import PromoCode from '../models/PromoCode.js';
 import { fulfillOrder } from './orderService.js';
 import { retryQueuedProviderOrders } from './orderRetryService.js';
 import { redeemPromoCodeAtomic } from './promoService.js';
-import { resolveOrderForPayment } from './pendingPaymentService.js';
+import {
+  createOrderFromPendingPayment,
+  findPendingPayment,
+} from './pendingPaymentService.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { logSecurityEvent } from './securityLogger.js';
 import { publishOrderUpdate } from './orderWebhookService.js';
@@ -37,7 +40,15 @@ export const markOrderPaidFromPaystack = async ({
 
   if (order?.paymentStatus === 'paid') {
     logSecurityEvent('duplicate_payment_webhook', { paymentReference });
-    if (order.deliveryStatus === 'failed' || order.metadata?.queuedForProvider) {
+    if (
+      order.deliveryStatus === 'failed'
+      || order.deliveryStatus === 'pending'
+      || order.metadata?.queuedForProvider
+    ) {
+      if (order.deliveryStatus === 'failed' || order.deliveryStatus === 'pending') {
+        order.deliveryStatus = 'processing';
+        await order.save();
+      }
       try {
         await fulfillOrder(order._id, io);
       } catch (err) {
@@ -49,20 +60,25 @@ export const markOrderPaidFromPaystack = async ({
   }
 
   if (!order) {
-    order = await resolveOrderForPayment(paymentReference);
+    const pending = await findPendingPayment(paymentReference);
+    if (!pending) {
+      throw new AppError('Checkout not found or expired. Please try again.', 404);
+    }
+    validatePaidAmount(amountPaid, pending.totalAmount, paymentReference);
+    order = await createOrderFromPendingPayment(pending, { paystackTransactionId });
     createdFromPending = true;
+  } else {
+    validatePaidAmount(amountPaid, order.totalAmount, paymentReference);
+    order = await Order.findOneAndUpdate(
+      { _id: order._id, paymentStatus: { $ne: 'paid' } },
+      {
+        paymentStatus: 'paid',
+        deliveryStatus: 'processing',
+        paystackTransactionId: paystackTransactionId?.toString(),
+      },
+      { new: true }
+    );
   }
-
-  validatePaidAmount(amountPaid, order.totalAmount, paymentReference);
-
-  order = await Order.findOneAndUpdate(
-    { _id: order._id, paymentStatus: { $ne: 'paid' } },
-    {
-      paymentStatus: 'paid',
-      paystackTransactionId: paystackTransactionId?.toString(),
-    },
-    { new: true }
-  );
 
   if (!order) {
     const existing = await Order.findOne({ paymentReference });
