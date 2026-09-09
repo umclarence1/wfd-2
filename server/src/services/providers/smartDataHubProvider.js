@@ -159,7 +159,7 @@ export const submitSmartDataHubDataBundle = async ({ apiUrl, apiKey, apiSecret }
     orders: [
       {
         _beneficiary_number: formatGhanaLocalPhone(order.phone),
-        network: mapSmartDataHubNetwork(pkg.category),
+        network: mapSmartDataHubNetwork(pkg.category || order.category),
         _data_size: parseSmartDataHubDataSize(pkg.dataAmount || pkg.name),
       },
     ],
