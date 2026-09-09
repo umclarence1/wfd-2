@@ -167,7 +167,7 @@ export const resolveProviderForCategory = async (category) => {
 };
 
 export const isNetworkForwardingEnabled = async (category) => {
-  if (isAlwaysApiNetwork(category)) return true;
+  if (isAlwaysApiNetwork(category) || isSmartDataHubNetwork(category)) return true;
   const settings = await getApiProviderSettings();
   if (settings.forwardingEnabled === false) return false;
   const selected = migrateProviderId(

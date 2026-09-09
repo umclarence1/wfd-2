@@ -37,7 +37,7 @@ const buildInitialPackages = () => {
   return packages;
 };
 
-/** Ensure all MTN EXPRESS bundle sizes exist (synced with TopDealsGH network). */
+/** Ensure all MTN EXPRESS bundle sizes exist (fulfilled via Smart Data Hub as MTN). */
 const ensureMtnExpressPackages = async () => {
   const existing = await Package.find({ category: 'MTN EXPRESS' }).lean();
   if (!existing.length) {

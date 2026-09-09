@@ -57,8 +57,18 @@ const smartDataHubRequest = async (
   return response;
 };
 
-export const mapSmartDataHubNetwork = (category) =>
-  SMART_DATA_HUB_NETWORK_CODES[category] || category.toLowerCase();
+/** Smart Data Hub uses `mtn` for both MTN and MTN EXPRESS storefront categories. */
+export const mapSmartDataHubNetwork = (category) => {
+  const key = String(category || '').trim();
+  if (SMART_DATA_HUB_NETWORK_CODES[key]) {
+    return SMART_DATA_HUB_NETWORK_CODES[key];
+  }
+  const upper = key.toUpperCase();
+  if (upper === 'MTN' || upper === 'MTN EXPRESS' || upper === 'MTNEXPRESS' || upper === 'MTNXP') {
+    return 'mtn';
+  }
+  return key.toLowerCase();
+};
 
 export const parseSmartDataHubDataSize = (dataAmount) => {
   const volume = parseBundleVolume(dataAmount);
