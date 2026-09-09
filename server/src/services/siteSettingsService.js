@@ -6,6 +6,7 @@ import {
   DEFAULT_API_PROVIDER_SETTINGS,
   PROVIDER_IDS,
   isAlwaysApiNetwork,
+  isSmartDataHubNetwork,
   migrateProviderId,
 } from '../config/apiProviders.js';
 
@@ -28,13 +29,18 @@ const assignSettingsKey = async (doc, key) => {
   return doc;
 };
 
-/** Ensure every network routes to TopDealsGH (migrate leftover Datamax IDs). */
-const normalizeApiProviderSettingsToTopDeals = (stored) => {
+/** Apply canonical routing: MTN/MTN EXPRESS → Smart Data Hub; others → TopDealsGH. */
+const normalizeApiProviderSettings = (stored) => {
   const defaults = DEFAULT_API_PROVIDER_SETTINGS();
   const current = stored || {};
   const networkProviders = { ...defaults.networkProviders };
 
   for (const { key } of API_NETWORKS) {
+    if (isSmartDataHubNetwork(key)) {
+      networkProviders[key] = PROVIDER_IDS.SMART_DATA_HUB;
+      continue;
+    }
+
     const raw = current.networkProviders?.[key];
     if (isAlwaysApiNetwork(key)) {
       // Telecel must always use a live API — never Off.
@@ -189,22 +195,34 @@ export const migrateSiteSettingsOnBoot = async () => {
     await SiteSettings.deleteOne({ _id: legacy._id });
   }
 
-  // Force TopDealsGH as the live provider for data/AFA (migrate Datamax leftovers).
-  canonical.apiProviderSettings = normalizeApiProviderSettingsToTopDeals(
+  canonical.apiProviderSettings = normalizeApiProviderSettings(
     canonical.apiProviderSettings
   );
   canonical.apiProviderSettings.forwardingEnabled = true;
   canonical.apiProviderSettings.defaultProvider = PROVIDER_IDS.TOPDEALSGH;
   for (const { key } of API_NETWORKS) {
-    if (!isAlwaysApiNetwork(key)) {
+    if (isSmartDataHubNetwork(key)) {
+      canonical.apiProviderSettings.networkProviders[key] = PROVIDER_IDS.SMART_DATA_HUB;
+    } else if (!isAlwaysApiNetwork(key)) {
       canonical.apiProviderSettings.networkProviders[key] = PROVIDER_IDS.TOPDEALSGH;
     }
+  }
+
+  canonical.apiProviderSettings.credentials = canonical.apiProviderSettings.credentials || {};
+
+  const sdhKey = env.smartDataHub?.apiKey?.trim();
+  const sdhSecret = env.smartDataHub?.apiSecret?.trim();
+  if (sdhKey && sdhSecret) {
+    canonical.apiProviderSettings.credentials.smart_data_hub = {
+      apiUrl: env.smartDataHub.apiUrl,
+      apiKeyEncrypted: encrypt(sdhKey),
+      apiSecretEncrypted: encrypt(sdhSecret),
+    };
   }
 
   const envApiKey = env.topdealsgh?.apiKey?.trim();
   const envSecret = env.topdealsgh?.secretKey?.trim();
   if (envApiKey && envSecret) {
-    canonical.apiProviderSettings.credentials = canonical.apiProviderSettings.credentials || {};
     canonical.apiProviderSettings.credentials.topdealsgh = {
       apiUrl: env.topdealsgh.apiUrl,
       apiKeyEncrypted: encrypt(envApiKey),

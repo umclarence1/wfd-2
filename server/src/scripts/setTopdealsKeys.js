@@ -114,8 +114,8 @@ const run = async () => {
   doc.apiProviderSettings.forwardingEnabled = true;
   doc.apiProviderSettings.defaultProvider = 'topdealsgh';
   doc.apiProviderSettings.networkProviders = {
-    MTN: 'topdealsgh',
-    'MTN EXPRESS': 'topdealsgh',
+    MTN: 'smart_data_hub',
+    'MTN EXPRESS': 'smart_data_hub',
     Telecel: 'topdealsgh',
     AirtelTigo: 'topdealsgh',
     'AirtelTigo Big Time': 'topdealsgh',

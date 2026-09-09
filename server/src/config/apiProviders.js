@@ -44,15 +44,21 @@ export const NETWORK_API_CODES = {
 /** Networks that must always be submitted to a live API provider (never Off / never mocked). */
 export const ALWAYS_API_NETWORKS = new Set(['Telecel']);
 
+/** MTN bundles fulfilled via Smart Data Hub. */
+export const SMART_DATA_HUB_NETWORKS = new Set(['MTN', 'MTN EXPRESS']);
+
 export const isAlwaysApiNetwork = (category) =>
   ALWAYS_API_NETWORKS.has(String(category || '').trim());
+
+export const isSmartDataHubNetwork = (category) =>
+  SMART_DATA_HUB_NETWORKS.has(String(category || '').trim());
 
 export const DEFAULT_API_PROVIDER_SETTINGS = () => ({
   forwardingEnabled: true,
   defaultProvider: PROVIDER_IDS.TOPDEALSGH,
   networkProviders: {
-    MTN: PROVIDER_IDS.TOPDEALSGH,
-    'MTN EXPRESS': PROVIDER_IDS.TOPDEALSGH,
+    MTN: PROVIDER_IDS.SMART_DATA_HUB,
+    'MTN EXPRESS': PROVIDER_IDS.SMART_DATA_HUB,
     Telecel: PROVIDER_IDS.TOPDEALSGH,
     AirtelTigo: PROVIDER_IDS.TOPDEALSGH,
     'AirtelTigo Big Time': PROVIDER_IDS.TOPDEALSGH,

@@ -5,6 +5,7 @@ import {
   PROVIDER_DEFINITIONS,
   PROVIDER_IDS,
   isAlwaysApiNetwork,
+  isSmartDataHubNetwork,
   migrateProviderId,
 } from '../config/apiProviders.js';
 import { decrypt, encrypt } from '../utils/encryption.js';
@@ -135,6 +136,10 @@ export const getProviderCredentials = async (providerId) => {
 };
 
 export const resolveProviderForCategory = async (category) => {
+  if (isSmartDataHubNetwork(category)) {
+    return PROVIDER_IDS.SMART_DATA_HUB;
+  }
+
   const settings = await getApiProviderSettings();
   const selected = migrateProviderId(
     settings.networkProviders?.[category] || PROVIDER_IDS.DEFAULT
@@ -235,6 +240,11 @@ export const updateApiProviderSettings = async (updates) => {
   }
   if (updates.networkProviders) {
     for (const { key } of API_NETWORKS) {
+      if (isSmartDataHubNetwork(key)) {
+        next.networkProviders[key] = PROVIDER_IDS.SMART_DATA_HUB;
+        continue;
+      }
+
       const value = updates.networkProviders[key];
       if (value !== undefined && value !== null && value !== '') {
         const migrated = migrateProviderId(value);
