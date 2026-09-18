@@ -18,7 +18,7 @@ import { promoBulkSchema, orderStatusUpdateSchema, orderBulkStatusUpdateSchema }
 import { sliderUpload } from '../middleware/upload.js';
 import { reorderCategoryPackages } from '../utils/packageSort.js';
 import { pauseUpdate, resumeUpdate } from '../utils/packageAvailability.js';
-import { fulfillOrder } from '../services/orderService.js';
+import { fulfillPaidOrderImmediately } from '../services/immediateFulfillmentService.js';
 import { syncOrderProviderStatus, maybeSendVerificationEmail } from '../services/orderProviderStatusService.js';
 import { purgeAllOrders } from '../services/orderPurgeService.js';
 import {
@@ -30,6 +30,7 @@ import {
   getQueuedOrders,
 } from '../services/apiProviderService.js';
 import { retryQueuedProviderOrders } from '../services/orderRetryService.js';
+import { markManualFulfillment } from '../utils/fulfillmentLock.js';
 import { publishOrderUpdate, testOrderStatusWebhook } from '../services/orderWebhookService.js';
 import { escapeRegex } from '../utils/escapeRegex.js';
 import { isSafeHttpUrl } from '../utils/providerUrl.js';
@@ -276,6 +277,10 @@ router.patch('/orders/bulk-status', requirePermission('orders'), validateBody(or
   const orders = await Order.find({ _id: { $in: orderIds } });
 
   for (const order of orders) {
+    if (deliveryStatus === 'delivered') {
+      markManualFulfillment(order);
+      await order.save();
+    }
     if (deliveryStatus === 'verification') {
       try {
         const previous = beforeDeliveryMap.get(String(order._id));
@@ -315,11 +320,16 @@ router.patch('/orders/:id/status', requirePermission('orders'), validateBody(ord
   const previousDelivery = existing.deliveryStatus;
   const previousPayment = existing.paymentStatus;
 
-  const order = await Order.findByIdAndUpdate(req.params.id, updates, {
+  let order = await Order.findByIdAndUpdate(req.params.id, updates, {
     new: true,
     runValidators: true,
   });
   if (!order) throw new AppError('Order not found.', 404);
+
+  if (deliveryStatus === 'delivered') {
+    markManualFulfillment(order);
+    await order.save();
+  }
 
   // Never fail the status change because email delivery broke.
   if (deliveryStatus === 'verification') {
@@ -350,9 +360,12 @@ router.post('/orders/:id/resubmit', requirePermission('orders'), asyncHandler(as
     ...(order.metadata || {}),
     queuedForProvider: false,
     queueReason: undefined,
+    submittedToProvider: false,
+    fulfillmentAbandoned: false,
+    manuallyFulfilled: false,
   };
   await order.save();
-  await fulfillOrder(order._id, req.app.get('io'));
+  await fulfillPaidOrderImmediately(order._id, req.app.get('io'));
   res.json({ success: true, message: 'Order resubmitted.' });
 }));
 

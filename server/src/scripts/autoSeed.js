@@ -10,6 +10,7 @@ import {
   MTN_EXPRESS_DEFAULT_PRICES,
 } from '../config/mtnExpressPackages.js';
 import { ensureCheckerPackages, syncCheckerPackageAvailability } from '../services/checkerService.js';
+import { runOrderFulfillmentRepair } from '../services/fixStuckOrdersService.js';
 
 const MTN_BUNDLES = ['10GB', '15GB', '20GB', '25GB', '30GB', '35GB', '40GB', '45GB', '50GB', '100GB', '150GB'];
 const PRICES = { '10GB': 5, '15GB': 7, '20GB': 10, '25GB': 12, '30GB': 14, '35GB': 16, '40GB': 18, '45GB': 20, '50GB': 22, '100GB': 40, '150GB': 55 };
@@ -159,6 +160,63 @@ export const autoSeedIfEmpty = async () => {
   );
   if (repairedPaid.modifiedCount) {
     console.log(`Set ${repairedPaid.modifiedCount} paid order(s) to processing.`);
+  }
+
+  const reopenedStuck = await Order.updateMany(
+    {
+      paymentStatus: 'paid',
+      deliveryStatus: 'processing',
+      'metadata.submittedToProvider': { $ne: true },
+      'metadata.manuallyFulfilled': { $ne: true },
+      $or: [
+        { 'metadata.queuedForProvider': true },
+        { 'metadata.fulfillmentAbandoned': true },
+        { 'metadata.lastProviderError': { $exists: true, $ne: null } },
+        { 'metadata.lastFulfillmentError': { $exists: true, $ne: null } },
+      ],
+    },
+    {
+      $set: {
+        'metadata.queuedForProvider': true,
+        'metadata.fulfillmentAbandoned': false,
+      },
+    }
+  );
+  if (reopenedStuck.modifiedCount) {
+    console.log(`Re-queued ${reopenedStuck.modifiedCount} paid order(s) pending TopDeals submit.`);
+  }
+
+  const resetPackageRetries = await Order.updateMany(
+    {
+      paymentStatus: 'paid',
+      'metadata.submittedToProvider': { $ne: true },
+      'metadata.queueReason': 'package_unmatched',
+    },
+    {
+      $set: {
+        'metadata.queuedForProvider': true,
+        'metadata.fulfillmentAbandoned': false,
+        retryCount: 0,
+      },
+    }
+  );
+  if (resetPackageRetries.modifiedCount) {
+    console.log(`Reset ${resetPackageRetries.modifiedCount} package-mismatch order(s) for retry.`);
+  }
+
+  try {
+    const repair = await runOrderFulfillmentRepair(null, { submit: true });
+    if (repair.skipped) {
+      console.log(`Order fulfillment repair skipped (v${repair.version}).`);
+    } else {
+      console.log(
+        `[ORDER_REPAIR] clearedStale=${repair.clearedStaleRefs || 0} requeued=${repair.requeued} ` +
+          `submitted=${repair.submitted} markedSubmitted=${repair.markedSubmitted} ` +
+          `stillNeverSubmitted=${repair.stillNeverSubmitted}`
+      );
+    }
+  } catch (err) {
+    console.error('[ORDER_REPAIR] Failed:', err.message);
   }
 
   await Package.updateMany(

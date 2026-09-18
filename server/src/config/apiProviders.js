@@ -41,29 +41,29 @@ export const NETWORK_API_CODES = {
   'MTN AFA': 'mtn_afa',
 };
 
-/** Networks that must always be submitted to a live API provider (never Off / never mocked). */
-export const ALWAYS_API_NETWORKS = new Set(['Telecel']);
+/** All storefront networks — always TopDealsGH, never Off. */
+export const TOPDEALSGH_NETWORKS = new Set(API_NETWORKS.map(({ key }) => key));
 
-/** MTN bundles fulfilled via Smart Data Hub. */
-export const SMART_DATA_HUB_NETWORKS = new Set(['MTN', 'MTN EXPRESS']);
+/** @deprecated Smart Data Hub is not used for order routing. */
+export const SMART_DATA_HUB_NETWORKS = new Set();
 
-export const isAlwaysApiNetwork = (category) =>
-  ALWAYS_API_NETWORKS.has(String(category || '').trim());
+export const isTopDealsGhNetwork = (category) =>
+  TOPDEALSGH_NETWORKS.has(String(category || '').trim());
 
-export const isSmartDataHubNetwork = (category) =>
-  SMART_DATA_HUB_NETWORKS.has(String(category || '').trim());
+/** @deprecated use isTopDealsGhNetwork */
+export const isTopDealsGhOnlyNetwork = isTopDealsGhNetwork;
+
+export const isAlwaysApiNetwork = (category) => isTopDealsGhNetwork(category);
+
+/** @deprecated always false — orders no longer route to Smart Data Hub. */
+export const isSmartDataHubNetwork = () => false;
 
 export const DEFAULT_API_PROVIDER_SETTINGS = () => ({
   forwardingEnabled: true,
   defaultProvider: PROVIDER_IDS.TOPDEALSGH,
-  networkProviders: {
-    MTN: PROVIDER_IDS.SMART_DATA_HUB,
-    'MTN EXPRESS': PROVIDER_IDS.SMART_DATA_HUB,
-    Telecel: PROVIDER_IDS.TOPDEALSGH,
-    AirtelTigo: PROVIDER_IDS.TOPDEALSGH,
-    'AirtelTigo Big Time': PROVIDER_IDS.TOPDEALSGH,
-    'MTN AFA': PROVIDER_IDS.TOPDEALSGH,
-  },
+  networkProviders: Object.fromEntries(
+    API_NETWORKS.map(({ key }) => [key, PROVIDER_IDS.TOPDEALSGH])
+  ),
   credentials: {
     smart_data_hub: { apiUrl: '', apiKeyEncrypted: '', apiSecretEncrypted: '' },
     topdealsgh: { apiUrl: '', apiKeyEncrypted: '', apiSecretEncrypted: '' },
@@ -74,5 +74,6 @@ export const DEFAULT_API_PROVIDER_SETTINGS = () => ({
 /** Normalize legacy Datamax IDs stored in MongoDB to TopDealsGH. */
 export const migrateProviderId = (value) => {
   if (value === 'datamax') return PROVIDER_IDS.TOPDEALSGH;
+  if (value === PROVIDER_IDS.SMART_DATA_HUB) return PROVIDER_IDS.TOPDEALSGH;
   return value;
 };

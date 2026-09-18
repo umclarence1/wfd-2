@@ -26,10 +26,11 @@ export const otpLimiter = rateLimit({
 
 export const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 200,
+  max: 500,
   message: { success: false, message: 'Too many requests. Please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => String(req.originalUrl || req.url || '').startsWith('/api/admin'),
 });
 
 export const paymentLimiter = rateLimit({
@@ -66,8 +67,8 @@ export const promoLimiter = rateLimit({
 
 export const adminLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 300,
-  message: { success: false, message: 'Too many admin requests.' },
+  max: 600,
+  message: { success: false, message: 'Too many admin requests. Please wait a moment.' },
   standardHeaders: true,
   legacyHeaders: false,
 });

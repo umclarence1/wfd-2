@@ -4,6 +4,8 @@ import {
   normalizeTopDealsWebhookPayload,
 } from './topdealsWebhookAuth.js';
 import { maybeSendVerificationEmail } from './orderProviderStatusService.js';
+import { isRealProviderReference } from '../utils/providerReference.js';
+import { resolveDeliveryStatusFromProvider } from '../utils/fulfillmentLock.js';
 import { PROVIDER_IDS } from '../config/apiProviders.js';
 import { publishOrderUpdate } from './orderWebhookService.js';
 
@@ -71,9 +73,11 @@ export const applyTopDealsWebhook = async (rawPayload, io) => {
   const previousPayment = order.paymentStatus;
   let synced = false;
 
-  if (deliveryStatus && deliveryStatus !== order.deliveryStatus) {
-    let nextStatus = deliveryStatus;
-    if (order.paymentStatus === 'paid' && ['failed', 'cancelled', 'refunded'].includes(nextStatus)) {
+  const mappedDelivery = resolveDeliveryStatusFromProvider(order, deliveryStatus);
+
+  if (mappedDelivery && mappedDelivery !== order.deliveryStatus) {
+    let nextStatus = mappedDelivery;
+    if (order.paymentStatus === 'paid' && ['failed', 'cancelled', 'refunded'].includes(deliveryStatus)) {
       nextStatus = 'processing';
       order.metadata = {
         ...(order.metadata || {}),
@@ -123,12 +127,19 @@ export const applyTopDealsWebhook = async (rawPayload, io) => {
     },
   };
 
+  const submittedToProvider = isRealProviderReference(order.providerReference, order.reference);
   order.metadata = {
     ...(order.metadata || {}),
     lastProviderSyncAt: new Date().toISOString(),
     lastProviderStatus: deliveryStatus || payload.status || payload.event,
     lastWebhookEvent: payload.event || null,
-    queuedForProvider: false,
+    queuedForProvider: submittedToProvider ? false : order.metadata?.queuedForProvider === true,
+    ...(deliveryStatus === 'delivered' && order.deliveryStatus === 'processing'
+      ? {
+          providerReportedDelivered: true,
+          providerReportedDeliveredAt: new Date().toISOString(),
+        }
+      : {}),
   };
 
   if (order.deliveryStatus === 'delivered' || order.deliveryStatus === 'verification') {

@@ -103,10 +103,10 @@ export const createOrderFromPendingPayment = async (pending, { paystackTransacti
   }
 };
 
-export const findPendingPayment = async (paymentReference) => {
+export const findPendingPayment = async (paymentReference, { allowExpired = false } = {}) => {
   const pending = await PendingPayment.findOne({ paymentReference });
   if (!pending) return null;
-  if (pending.expiresAt && pending.expiresAt.getTime() < Date.now()) {
+  if (!allowExpired && pending.expiresAt && pending.expiresAt.getTime() < Date.now()) {
     await PendingPayment.deleteOne({ _id: pending._id });
     return null;
   }

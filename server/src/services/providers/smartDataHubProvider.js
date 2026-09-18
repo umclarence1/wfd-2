@@ -190,10 +190,21 @@ export const submitSmartDataHubDataBundle = async ({ apiUrl, apiKey, apiSecret }
   }
 
   if (response.status === 422) {
+    const message = response.data?.message || 'Smart Data Hub rejected the order.';
+    if (/already|duplicate|exists/i.test(message)) {
+      return {
+        success: true,
+        reference: order.reference,
+        orderNumber: order.reference,
+        message: 'Order already accepted by Smart Data Hub.',
+        raw: response.data,
+        alreadySubmitted: true,
+      };
+    }
     return {
       success: false,
       reference: order.reference,
-      message: response.data?.message || 'Smart Data Hub rejected the order.',
+      message,
       raw: response.data,
     };
   }

@@ -5,7 +5,7 @@ import {
   PROVIDER_DEFINITIONS,
   PROVIDER_IDS,
   isAlwaysApiNetwork,
-  isSmartDataHubNetwork,
+  isTopDealsGhNetwork,
   migrateProviderId,
 } from '../config/apiProviders.js';
 import { decrypt, encrypt } from '../utils/encryption.js';
@@ -39,9 +39,12 @@ const mergeSettings = (stored) => {
         ? migrateProviderId(storedValue)
         : defaults.networkProviders[key] ?? PROVIDER_IDS.DEFAULT;
 
-    // Telecel can never be Off in effective settings.
-    if (isAlwaysApiNetwork(key) && resolved === PROVIDER_IDS.DISABLED) {
-      resolved = migrateProviderId(stored.defaultProvider) || PROVIDER_IDS.TOPDEALSGH;
+    if (isTopDealsGhNetwork(key)) {
+      resolved = PROVIDER_IDS.TOPDEALSGH;
+    } else if (resolved === PROVIDER_IDS.DISABLED) {
+      resolved = PROVIDER_IDS.DISABLED;
+    } else {
+      resolved = PROVIDER_IDS.TOPDEALSGH;
     }
 
     networkProviders[key] = resolved;
@@ -136,8 +139,8 @@ export const getProviderCredentials = async (providerId) => {
 };
 
 export const resolveProviderForCategory = async (category) => {
-  if (isSmartDataHubNetwork(category)) {
-    return PROVIDER_IDS.SMART_DATA_HUB;
+  if (isTopDealsGhNetwork(category)) {
+    return PROVIDER_IDS.TOPDEALSGH;
   }
 
   const settings = await getApiProviderSettings();
@@ -145,29 +148,14 @@ export const resolveProviderForCategory = async (category) => {
     settings.networkProviders?.[category] || PROVIDER_IDS.DEFAULT
   );
 
-  // Telecel (and any ALWAYS_API network) always resolve to a live provider.
-  if (isAlwaysApiNetwork(category)) {
-    if (
-      selected === PROVIDER_IDS.DISABLED ||
-      selected === PROVIDER_IDS.DEFAULT ||
-      !selected
-    ) {
-      return migrateProviderId(settings.defaultProvider) || PROVIDER_IDS.TOPDEALSGH;
-    }
-    return selected;
-  }
-
   if (selected === PROVIDER_IDS.DISABLED) {
     return PROVIDER_IDS.DISABLED;
   }
-  if (selected === PROVIDER_IDS.DEFAULT) {
-    return migrateProviderId(settings.defaultProvider) || PROVIDER_IDS.TOPDEALSGH;
-  }
-  return selected;
+  return PROVIDER_IDS.TOPDEALSGH;
 };
 
 export const isNetworkForwardingEnabled = async (category) => {
-  if (isAlwaysApiNetwork(category) || isSmartDataHubNetwork(category)) return true;
+  if (isTopDealsGhNetwork(category)) return true;
   const settings = await getApiProviderSettings();
   if (settings.forwardingEnabled === false) return false;
   const selected = migrateProviderId(
@@ -240,33 +228,26 @@ export const updateApiProviderSettings = async (updates) => {
   }
   if (updates.networkProviders) {
     for (const { key } of API_NETWORKS) {
-      if (isSmartDataHubNetwork(key)) {
-        next.networkProviders[key] = PROVIDER_IDS.SMART_DATA_HUB;
+      if (isTopDealsGhNetwork(key)) {
+        next.networkProviders[key] = PROVIDER_IDS.TOPDEALSGH;
         continue;
       }
 
       const value = updates.networkProviders[key];
       if (value !== undefined && value !== null && value !== '') {
         const migrated = migrateProviderId(value);
-        // Telecel cannot be turned Off — always keep a live provider.
-        if (isAlwaysApiNetwork(key) && migrated === PROVIDER_IDS.DISABLED) {
-          next.networkProviders[key] =
-            migrateProviderId(next.defaultProvider) || PROVIDER_IDS.TOPDEALSGH;
-        } else {
-          next.networkProviders[key] = migrated;
-        }
+        next.networkProviders[key] =
+          migrated === PROVIDER_IDS.DISABLED ? PROVIDER_IDS.DISABLED : PROVIDER_IDS.TOPDEALSGH;
       }
     }
   }
 
-  // Hard guarantee even if Telecel was previously saved as disabled.
-  if (isAlwaysApiNetwork('Telecel')) {
-    const telecel = next.networkProviders.Telecel;
-    if (!telecel || telecel === PROVIDER_IDS.DISABLED) {
-      next.networkProviders.Telecel =
-        migrateProviderId(next.defaultProvider) || PROVIDER_IDS.TOPDEALSGH;
+  for (const { key } of API_NETWORKS) {
+    if (isTopDealsGhNetwork(key)) {
+      next.networkProviders[key] = PROVIDER_IDS.TOPDEALSGH;
     }
   }
+  next.defaultProvider = PROVIDER_IDS.TOPDEALSGH;
   if (updates.fulfillmentWebhookUrl !== undefined) {
     next.fulfillmentWebhookUrl = updates.fulfillmentWebhookUrl;
   }

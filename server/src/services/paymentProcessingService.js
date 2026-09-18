@@ -1,6 +1,6 @@
 import Order from '../models/Order.js';
 import PromoCode from '../models/PromoCode.js';
-import { fulfillOrder } from './orderService.js';
+import { fulfillPaidOrderImmediately } from './immediateFulfillmentService.js';
 import { retryQueuedProviderOrders } from './orderRetryService.js';
 import { redeemPromoCodeAtomic } from './promoService.js';
 import {
@@ -10,7 +10,10 @@ import {
 import { AppError } from '../middleware/errorHandler.js';
 import { logSecurityEvent } from './securityLogger.js';
 import { publishOrderUpdate } from './orderWebhookService.js';
-import { isRealProviderReference } from '../utils/providerReference.js';
+import {
+  isOrderSubmittedToProvider,
+  shouldNeverResubmitToProvider,
+} from '../utils/fulfillmentLock.js';
 
 const AMOUNT_TOLERANCE = 0.02;
 
@@ -41,45 +44,37 @@ export const markOrderPaidFromPaystack = async ({
 
   if (order?.paymentStatus === 'paid') {
     logSecurityEvent('duplicate_payment_webhook', { paymentReference });
-    if (
-      order.deliveryStatus === 'failed'
-      || order.deliveryStatus === 'pending'
-      || order.metadata?.queuedForProvider
-    ) {
+    // Only retry fulfillment if never submitted to the provider — avoids duplicate API orders.
+    if (!shouldNeverResubmitToProvider(order)) {
       if (order.deliveryStatus === 'failed' || order.deliveryStatus === 'pending') {
         order.deliveryStatus = 'processing';
         await order.save();
       }
       try {
-        await fulfillOrder(order._id, io);
+        order = (await fulfillPaidOrderImmediately(order._id, io)) || order;
       } catch (err) {
         console.error('[PAYMENT] Re-fulfillment failed:', order.reference, err.message);
       }
+      if (order && !isOrderSubmittedToProvider(order) && order.serviceType !== 'result_checker') {
+        retryQueuedProviderOrders(io).catch(() => {});
+      }
     }
-    retryQueuedProviderOrders(io).catch(() => {});
     return { order, duplicate: true };
   }
 
-  if (!order) {
-    const pending = await findPendingPayment(paymentReference);
-    if (!pending) {
-      throw new AppError('Checkout not found or expired. Please try again.', 404);
-    }
-    validatePaidAmount(amountPaid, pending.totalAmount, paymentReference);
-    order = await createOrderFromPendingPayment(pending, { paystackTransactionId });
-    createdFromPending = true;
-  } else {
-    validatePaidAmount(amountPaid, order.totalAmount, paymentReference);
-    order = await Order.findOneAndUpdate(
-      { _id: order._id, paymentStatus: { $ne: 'paid' } },
-      {
-        paymentStatus: 'paid',
-        deliveryStatus: 'processing',
-        paystackTransactionId: paystackTransactionId?.toString(),
-      },
-      { new: true }
-    );
+  if (order && order.paymentStatus !== 'paid') {
+    logSecurityEvent('legacy_unpaid_order_on_payment', { paymentReference, orderId: order._id });
+    await Order.deleteOne({ _id: order._id, paymentStatus: { $ne: 'paid' } });
+    order = null;
   }
+
+  const pending = await findPendingPayment(paymentReference, { allowExpired: true });
+  if (!pending) {
+    throw new AppError('Checkout not found. Payment received — contact support with your payment reference.', 404);
+  }
+  validatePaidAmount(amountPaid, pending.totalAmount, paymentReference);
+  order = await createOrderFromPendingPayment(pending, { paystackTransactionId });
+  createdFromPending = true;
 
   if (!order) {
     const existing = await Order.findOne({ paymentReference });
@@ -119,28 +114,25 @@ export const markOrderPaidFromPaystack = async ({
     previousDeliveryStatus: order.deliveryStatus,
   });
 
+  let refreshed = order;
   try {
-    await fulfillOrder(order._id, io);
+    refreshed = (await fulfillPaidOrderImmediately(order._id, io)) || order;
   } catch (err) {
-    console.error('[PAYMENT] Fulfillment error after Paystack payment:', order.reference, err.message);
+    console.error('[PAYMENT] Immediate fulfillment error:', order.reference, err.message);
+    refreshed = await Order.findById(order._id);
   }
 
-  // Second pass — cover race where first fulfill returned early.
-  const afterFulfill = await Order.findById(order._id);
-  if (
-    afterFulfill?.paymentStatus === 'paid'
-    && !isRealProviderReference(afterFulfill.providerReference, afterFulfill.reference)
-    && afterFulfill.serviceType !== 'result_checker'
-  ) {
-    try {
-      await fulfillOrder(afterFulfill._id, io);
-    } catch (err) {
-      console.error('[PAYMENT] Second fulfillment attempt failed:', afterFulfill.reference, err.message);
+  if (refreshed && !isOrderSubmittedToProvider(refreshed) && refreshed.serviceType !== 'result_checker') {
+    if (!refreshed.metadata?.queuedForProvider) {
+      refreshed.metadata = {
+        ...(refreshed.metadata || {}),
+        queuedForProvider: true,
+        queueReason: refreshed.metadata?.queueReason || 'awaiting_provider_submit',
+      };
+      await refreshed.save();
     }
+    retryQueuedProviderOrders(io).catch(() => {});
   }
 
-  retryQueuedProviderOrders(io).catch(() => {});
-
-  const refreshed = await Order.findById(order._id);
   return { order: refreshed || order, duplicate: false };
 };

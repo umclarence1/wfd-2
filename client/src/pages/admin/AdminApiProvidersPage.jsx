@@ -1,17 +1,19 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plug, RefreshCw } from 'lucide-react';
 import api from '../../api/client';
 import { useToast } from '../../context/ToastContext';
 import AdminPageHeader from '../../components/admin/AdminPageHeader';
 
+const TOPDEALS_HINT = 'All orders go to TopDealsGH immediately on payment — no duplicates.';
+
 const NETWORKS = [
-  { key: 'MTN', label: 'MTN' },
-  { key: 'MTN EXPRESS', label: 'MTN EXPRESS' },
-  { key: 'Telecel', label: 'Telecel', alwaysApi: true, hint: 'Always sent to the API — cannot be turned Off' },
-  { key: 'AirtelTigo', label: 'AirtelTigo' },
-  { key: 'AirtelTigo Big Time', label: 'AirtelTigo Big Time' },
-  { key: 'MTN AFA', label: 'AFA Registration', hint: 'MTN AFA via TopDealsGH', highlight: true },
+  { key: 'MTN', label: 'MTN', alwaysApi: true, topdealsOnly: true, hint: TOPDEALS_HINT },
+  { key: 'MTN EXPRESS', label: 'MTN EXPRESS', alwaysApi: true, topdealsOnly: true, hint: TOPDEALS_HINT },
+  { key: 'Telecel', label: 'Telecel', alwaysApi: true, topdealsOnly: true, hint: TOPDEALS_HINT },
+  { key: 'AirtelTigo', label: 'AirtelTigo', alwaysApi: true, topdealsOnly: true, hint: TOPDEALS_HINT },
+  { key: 'AirtelTigo Big Time', label: 'AirtelTigo Big Time', alwaysApi: true, topdealsOnly: true, hint: TOPDEALS_HINT },
+  { key: 'MTN AFA', label: 'AFA Registration', alwaysApi: true, topdealsOnly: true, hint: TOPDEALS_HINT, highlight: true },
 ];
 
 const PROVIDER_OPTIONS = [
@@ -51,7 +53,8 @@ export default function AdminApiProvidersPage() {
   const { data: queuedData } = useQuery({
     queryKey: ['admin-api-queued'],
     queryFn: () => api.get('/admin/api-providers/queued').then((r) => r.data.orders),
-    refetchInterval: 30000,
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: false,
   });
 
   useEffect(() => {
@@ -85,15 +88,44 @@ export default function AdminApiProvidersPage() {
     onError: (err) => toast(err.response?.data?.message || 'Could not save routing.', 'error'),
   });
 
-  const persistRouting = (partial) => {
-    if (!form) return;
-    saveRouting.mutate({
-      forwardingEnabled: partial.forwardingEnabled ?? form.forwardingEnabled,
-      defaultProvider: partial.defaultProvider ?? form.defaultProvider,
-      networkProviders: partial.networkProviders ?? form.networkProviders,
-      fulfillmentWebhookUrl: form.fulfillmentWebhookUrl,
-    });
-  };
+  const formRef = useRef(form);
+  const persistTimerRef = useRef(null);
+  const pendingRoutingRef = useRef(null);
+
+  useEffect(() => {
+    formRef.current = form;
+  }, [form]);
+
+  const flushRoutingSave = useCallback(() => {
+    const payload = pendingRoutingRef.current;
+    pendingRoutingRef.current = null;
+    if (!payload) return;
+    saveRouting.mutate(payload);
+  }, [saveRouting]);
+
+  const persistRouting = useCallback(
+    (partial) => {
+      const current = formRef.current;
+      if (!current) return;
+      const prev = pendingRoutingRef.current || {};
+      pendingRoutingRef.current = {
+        forwardingEnabled: partial.forwardingEnabled ?? prev.forwardingEnabled ?? current.forwardingEnabled,
+        defaultProvider: partial.defaultProvider ?? prev.defaultProvider ?? current.defaultProvider,
+        networkProviders: partial.networkProviders ?? prev.networkProviders ?? current.networkProviders,
+        fulfillmentWebhookUrl: current.fulfillmentWebhookUrl,
+      };
+      if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
+      persistTimerRef.current = setTimeout(flushRoutingSave, 800);
+    },
+    [flushRoutingSave]
+  );
+
+  useEffect(
+    () => () => {
+      if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
+    },
+    []
+  );
 
   const saveConfig = useMutation({
     mutationFn: (payload) => api.put('/admin/api-providers', payload).then((r) => r.data.config),
@@ -248,10 +280,17 @@ export default function AdminApiProvidersPage() {
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {NETWORKS.map((network) => {
             const rawSelected = form.networkProviders[network.key] || 'default';
-            const selected =
-              network.alwaysApi && rawSelected === 'disabled' ? 'topdealsgh' : rawSelected;
+            const selected = network.topdealsOnly
+              ? 'topdealsgh'
+              : network.alwaysApi && rawSelected === 'disabled'
+                ? 'topdealsgh'
+                : rawSelected;
             const isOff = selected === 'disabled';
-            const options = network.alwaysApi ? ALWAYS_API_PROVIDER_OPTIONS : PROVIDER_OPTIONS;
+            const options = network.topdealsOnly
+              ? PROVIDER_OPTIONS.filter((opt) => opt.value === 'topdealsgh')
+              : network.alwaysApi
+                ? ALWAYS_API_PROVIDER_OPTIONS
+                : PROVIDER_OPTIONS;
 
             return (
             <div
@@ -287,14 +326,14 @@ export default function AdminApiProvidersPage() {
               <select
                 className={`input-field mt-3 ${isOff ? 'border-red-300 bg-white' : ''}`}
                 value={selected}
-                disabled={saveRouting.isPending}
+                disabled={saveRouting.isPending || network.topdealsOnly}
                 onChange={(e) => {
-                  const networkProviders = {
-                    ...form.networkProviders,
-                    [network.key]: e.target.value,
-                  };
-                  setForm({ ...form, networkProviders });
-                  persistRouting({ networkProviders });
+                  const value = e.target.value;
+                  setForm((prev) => {
+                    const networkProviders = { ...prev.networkProviders, [network.key]: value };
+                    persistRouting({ networkProviders });
+                    return { ...prev, networkProviders };
+                  });
                 }}
               >
                 {options.map((opt) => (

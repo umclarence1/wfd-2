@@ -16,16 +16,25 @@ import {
   getProviderCredentials,
 } from './apiProviderService.js';
 import { PROVIDER_IDS } from '../config/apiProviders.js';
-import { submitTopDealsGhCheckerPurchase } from './providers/topdealsghProvider.js';
+import {
+  resolveTopDealsGhPackageId,
+  submitTopDealsGhCheckerPurchase,
+} from './providers/topdealsghProvider.js';
 import Checker from '../models/Checker.js';
 import { QUEUE_REASONS } from '../utils/providerQueue.js';
-import { isRealProviderReference } from '../utils/providerReference.js';
+import {
+  claimFulfillmentWithRetry,
+  isOrderSubmittedToProvider,
+  releaseFulfillmentLock,
+  shouldNeverResubmitToProvider,
+} from '../utils/fulfillmentLock.js';
 import {
   sendOrderConfirmationEmail,
   sendCheckerDeliveryEmail,
 } from '../services/emailService.js';
 import { sendCheckerDeliverySMS } from './smsService.js';
 import { publishOrderUpdate } from './orderWebhookService.js';
+import { fulfillPaidOrderImmediately } from './immediateFulfillmentService.js';
 
 export const getFreshPackage = async (packageId) => {
   const pkg = await Package.findById(packageId);
@@ -157,63 +166,58 @@ export const createOrder = async (validated, user, idempotencyKey) => {
   }
 };
 
+const submitDataBundleWithPackageRetry = async (order, pkg) => {
+  let providerResponse = await submitDataBundleOrder(order, pkg);
+  if (
+    providerResponse.success !== true
+    && !providerResponse.alreadySubmitted
+    && providerResponse.queueReason === 'package_unmatched'
+  ) {
+    try {
+      const creds = await getProviderCredentials(PROVIDER_IDS.TOPDEALSGH);
+      const topdealsId = await resolveTopDealsGhPackageId(creds, pkg);
+      if (topdealsId && topdealsId !== pkg.providerPackageId) {
+        await Package.updateOne({ _id: pkg._id }, { $set: { providerPackageId: topdealsId } });
+        pkg.providerPackageId = topdealsId;
+        providerResponse = await submitDataBundleOrder(order, pkg);
+      }
+    } catch (err) {
+      providerResponse = {
+        ...providerResponse,
+        message: err.message || providerResponse.message,
+      };
+    }
+  }
+  return providerResponse;
+};
+
+/** Provider HTTP calls must run outside MongoDB transactions (Atlas aborts long txns). */
 export const fulfillOrder = async (orderId, io) => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
+  const claimed = await claimFulfillmentWithRetry(orderId);
+  if (!claimed) {
+    return Order.findById(orderId);
+  }
 
   try {
-    const order = await Order.findById(orderId).session(session);
-    if (!order || order.paymentStatus !== 'paid') {
-      await session.abortTransaction();
-      return;
-    }
-
-    const alreadySubmitted =
-      order.deliveryStatus === 'delivered'
-      || (isRealProviderReference(order.providerReference, order.reference)
-        && !order.metadata?.queuedForProvider);
-
-    if (alreadySubmitted) {
-      await session.abortTransaction();
-      return order;
-    }
+    const order = await Order.findById(orderId);
+    if (!order || order.paymentStatus !== 'paid') return order;
+    if (shouldNeverResubmitToProvider(order)) return order;
 
     const previousPaymentStatus = order.paymentStatus;
     const previousDeliveryStatus = order.deliveryStatus;
 
-    // Paid orders show as processing while TopDeals fulfills.
     order.deliveryStatus = 'processing';
-    await order.save({ session });
+    await order.save();
 
-    const pkg = await Package.findById(order.package).session(session);
+    const pkg = await Package.findById(order.package);
     if (!pkg || !pkg.isActive || pkg.adminPaused) {
-      order.deliveryStatus = 'processing';
       order.metadata = {
         ...(order.metadata || {}),
         queuedForProvider: true,
         queueReason: 'package_unavailable',
       };
       order.failureReason = 'Payment received — your order is being processed.';
-      await order.save({ session });
-      await session.commitTransaction();
-      await publishOrderUpdate(order, {
-        io,
-        trigger: 'fulfillment.queued',
-        previousPaymentStatus,
-        previousDeliveryStatus,
-      });
-      return order;
-    }
-    if (pkg.serviceType !== 'result_checker' && !pkg.isAvailable) {
-      order.deliveryStatus = 'processing';
-      order.metadata = {
-        ...(order.metadata || {}),
-        queuedForProvider: true,
-        queueReason: 'package_unavailable',
-      };
-      order.failureReason = 'Payment received — your order is being processed.';
-      await order.save({ session });
-      await session.commitTransaction();
+      await order.save();
       await publishOrderUpdate(order, {
         io,
         trigger: 'fulfillment.queued',
@@ -223,7 +227,22 @@ export const fulfillOrder = async (orderId, io) => {
       return order;
     }
 
-    let providerResponse;
+    if (pkg.serviceType !== 'result_checker' && !pkg.isAvailable) {
+      order.metadata = {
+        ...(order.metadata || {}),
+        queuedForProvider: true,
+        queueReason: 'package_unavailable',
+      };
+      order.failureReason = 'Payment received — your order is being processed.';
+      await order.save();
+      await publishOrderUpdate(order, {
+        io,
+        trigger: 'fulfillment.queued',
+        previousPaymentStatus,
+        previousDeliveryStatus,
+      });
+      return order;
+    }
 
     if (order.serviceType === 'result_checker') {
       const qty = Math.max(1, Math.min(5, Number(order.quantity) || 1));
@@ -247,7 +266,6 @@ export const fulfillOrder = async (orderId, io) => {
         });
 
         if (result.queued) {
-          order.deliveryStatus = 'processing';
           order.metadata = {
             ...(order.metadata || {}),
             queuedForProvider: true,
@@ -255,8 +273,7 @@ export const fulfillOrder = async (orderId, io) => {
             providerId: PROVIDER_IDS.TOPDEALSGH,
           };
           order.failureReason = result.message || 'Queued for TopDealsGH retry.';
-          await order.save({ session });
-          await session.commitTransaction();
+          await order.save();
           await publishOrderUpdate(order, {
             io,
             trigger: 'fulfillment.queued',
@@ -270,20 +287,15 @@ export const fulfillOrder = async (orderId, io) => {
           throw new AppError(result.message || 'Checker purchase failed.', 502);
         }
 
-        const [created] = await Checker.create(
-          [
-            {
-              checkerType: pkg.checkerType,
-              serialNumber: result.serial,
-              pin: result.pin,
-              status: 'used',
-              order: order._id,
-              year: String(new Date().getFullYear()),
-              usedAt: new Date(),
-            },
-          ],
-          { session }
-        );
+        const created = await Checker.create({
+          checkerType: pkg.checkerType,
+          serialNumber: result.serial,
+          pin: result.pin,
+          status: 'used',
+          order: order._id,
+          year: String(new Date().getFullYear()),
+          usedAt: new Date(),
+        });
         purchased.push(created);
         if (result.orderId) providerRefs.push(result.orderId);
       }
@@ -295,12 +307,13 @@ export const fulfillOrder = async (orderId, io) => {
       order.metadata = {
         ...(order.metadata || {}),
         queuedForProvider: false,
+        submittedToProvider: true,
+        submittedToProviderAt: new Date().toISOString(),
         providerId: PROVIDER_IDS.TOPDEALSGH,
         source: 'topdealsgh_agent_api',
       };
 
-      await order.save({ session });
-      await session.commitTransaction();
+      await order.save();
 
       const checkerPayload = {
         checkerType: pkg.checkerType,
@@ -318,27 +331,20 @@ export const fulfillOrder = async (orderId, io) => {
         sendCheckerDeliverySMS(order.phone, checkerPayload),
       ]);
     } else if (order.serviceType === 'data_bundle') {
-      providerResponse = await submitDataBundleOrder(order, pkg);
+      const providerResponse = await submitDataBundleWithPackageRetry(order, pkg);
       const { shouldNotify } = applyProviderFulfillment(order, providerResponse, {
         successStatus: 'processing',
       });
-
-      await order.save({ session });
-      await session.commitTransaction();
-
-      // Confirmation email only.
+      await order.save();
       if (shouldNotify) {
         await Promise.allSettled([sendOrderConfirmationEmail(order.email, order)]);
       }
     } else if (order.serviceType === 'afa_registration') {
-      providerResponse = await submitAFARegistration(order, pkg);
+      const providerResponse = await submitAFARegistration(order, pkg);
       const { shouldNotify } = applyProviderFulfillment(order, providerResponse, {
         successStatus: 'processing',
       });
-
-      await order.save({ session });
-      await session.commitTransaction();
-
+      await order.save();
       if (shouldNotify) {
         await sendOrderConfirmationEmail(order.email, order);
       }
@@ -354,10 +360,8 @@ export const fulfillOrder = async (orderId, io) => {
 
     return order;
   } catch (err) {
-    await session.abortTransaction();
     const order = await Order.findById(orderId);
-    if (order && order.paymentStatus === 'paid') {
-      const previousDeliveryStatus = order.deliveryStatus;
+    if (order && order.paymentStatus === 'paid' && !shouldNeverResubmitToProvider(order)) {
       order.deliveryStatus = 'processing';
       order.metadata = {
         ...(order.metadata || {}),
@@ -372,12 +376,12 @@ export const fulfillOrder = async (orderId, io) => {
       await publishOrderUpdate(order, {
         io,
         trigger: 'fulfillment.queued',
-        previousDeliveryStatus,
+        previousDeliveryStatus: order.deliveryStatus,
       });
     }
     return order;
   } finally {
-    session.endSession();
+    await releaseFulfillmentLock(orderId);
   }
 };
 
@@ -411,7 +415,7 @@ export const processFreeOrder = async (order, promoResult, user, io) => {
       previousDeliveryStatus: order.deliveryStatus,
     });
 
-    await fulfillOrder(order._id, io);
+    await fulfillPaidOrderImmediately(order._id, io);
     return order;
   } catch (err) {
     await session.abortTransaction();

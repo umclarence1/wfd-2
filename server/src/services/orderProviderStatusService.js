@@ -6,19 +6,19 @@ import { resolveProviderForCategory } from './apiProviderService.js';
 import { sendNumberVerificationEmail } from './emailService.js';
 import { publishOrderUpdate } from './orderWebhookService.js';
 import { isRealProviderReference } from '../utils/providerReference.js';
+import {
+  isOrderSubmittedToProvider,
+  resolveDeliveryStatusFromProvider,
+  shouldSkipAutoFulfillment,
+} from '../utils/fulfillmentLock.js';
 import { fulfillOrder } from './orderService.js';
 import { isMtnDataCategory } from '../utils/validation.js';
 
 const API_SERVICE_TYPES = new Set(['data_bundle', 'afa_registration']);
 const OPEN_DELIVERY_STATUSES = ['pending', 'processing', 'verification'];
 
-const mapProviderStatusToDelivery = (providerStatus) => {
-  if (providerStatus === 'delivered') return 'delivered';
-  if (providerStatus === 'failed') return 'failed';
-  if (providerStatus === 'verification') return 'verification';
-  if (providerStatus === 'processing') return 'processing';
-  return null;
-};
+const mapProviderStatusToDelivery = (order, providerStatus) =>
+  resolveDeliveryStatusFromProvider(order, providerStatus);
 
 const providerDisplayName = (providerId) =>
   (providerId && PROVIDER_DEFINITIONS[providerId]?.name) || providerId || '—';
@@ -81,14 +81,27 @@ export const syncOrderProviderStatus = async (orderId, io) => {
     };
   }
 
-  if (order.metadata?.queuedForProvider && !isRealProviderReference(order.providerReference, order.reference)) {
+  if (shouldSkipAutoFulfillment(order)) {
+    return {
+      orderId: order._id,
+      reference: order.reference,
+      apiReference: order.providerReference || order.reference,
+      providerId: order.providerId || null,
+      providerName: providerDisplayName(order.providerId),
+      providerStatus: order.deliveryStatus,
+      deliveryStatus: order.deliveryStatus,
+      message: 'Order fulfilled manually — auto-submit disabled.',
+      synced: false,
+      checkedAt: new Date().toISOString(),
+      raw: order.providerResponse || null,
+    };
+  }
+
+  if (order.metadata?.queuedForProvider && !isOrderSubmittedToProvider(order)) {
     return buildQueuedPayload(order);
   }
 
-  if (
-    order.paymentStatus === 'paid'
-    && !isRealProviderReference(order.providerReference, order.reference)
-  ) {
+  if (order.paymentStatus === 'paid' && !isOrderSubmittedToProvider(order)) {
     try {
       await fulfillOrder(order._id, io);
     } catch (err) {
@@ -100,7 +113,7 @@ export const syncOrderProviderStatus = async (orderId, io) => {
     }
 
     const refreshed = await Order.findById(orderId);
-    if (!isRealProviderReference(refreshed?.providerReference, refreshed?.reference)) {
+    if (!isOrderSubmittedToProvider(refreshed)) {
       return buildQueuedPayload(refreshed || order, {
         providerStatus: 'queued',
         message:
@@ -116,7 +129,7 @@ export const syncOrderProviderStatus = async (orderId, io) => {
   const apiReference = order.providerReference;
 
   const result = await checkProviderStatus(apiReference, order.category, providerId, order.reference);
-  const mappedDelivery = mapProviderStatusToDelivery(result.status);
+  const mappedDelivery = mapProviderStatusToDelivery(order, result.status);
 
   let synced = false;
   const previousDelivery = order.deliveryStatus;
@@ -149,6 +162,12 @@ export const syncOrderProviderStatus = async (orderId, io) => {
     ...(order.metadata || {}),
     lastProviderSyncAt: new Date().toISOString(),
     lastProviderStatus: result.status,
+    ...(result.status === 'delivered' && mappedDelivery === 'processing'
+      ? {
+          providerReportedDelivered: true,
+          providerReportedDeliveredAt: new Date().toISOString(),
+        }
+      : {}),
   };
 
   if (result.raw) {

@@ -7,8 +7,9 @@ import { retryQueuedProviderOrders } from '../src/services/orderRetryService.js'
 import { syncOpenProviderOrders } from '../src/services/orderProviderStatusService.js';
 import { notifyStaleMtnPendingOrders } from '../src/services/mtnPendingNoticeService.js';
 import { syncCheckerPackageAvailability } from '../src/services/checkerService.js';
+import { syncTopDealsPackageIds } from '../src/services/topdealsPackageSyncService.js';
 
-const BACKGROUND_JOB_MS = 90 * 1000;
+const BACKGROUND_JOB_MS = 15 * 1000;
 let lastBackgroundJob = 0;
 
 const maybeRunBackgroundJobs = () => {
@@ -31,18 +32,40 @@ const maybeRunBackgroundJobs = () => {
 
 let app;
 let readyPromise;
+let deferredBootstrapStarted = false;
+
+/** Heavy boot work — must not block checkout / Paystack on serverless cold starts. */
+const runDeferredBootstrap = () => {
+  if (deferredBootstrapStarted) return;
+  deferredBootstrapStarted = true;
+
+  (async () => {
+    try {
+      await syncTopDealsPackageIds();
+    } catch (err) {
+      console.error('[TOPDEALS_PKG_SYNC] Deferred sync failed:', err.message);
+    }
+
+    try {
+      await autoSeedIfEmpty();
+    } catch (err) {
+      console.error('[AUTO_SEED] Deferred boot failed:', err.message);
+    }
+
+    try {
+      await syncCheckerPackageAvailability();
+    } catch (err) {
+      console.error('[CHECKER_STOCK] Deferred sync failed:', err.message);
+    }
+  })().catch((err) => {
+    console.error('[BOOT] Deferred bootstrap failed:', err.message);
+  });
+};
 
 const bootstrap = async () => {
   await connectDB();
   validateProductionEnv();
   await migrateSiteSettingsOnBoot();
-  await autoSeedIfEmpty();
-
-  try {
-    await syncCheckerPackageAvailability();
-  } catch (err) {
-    console.error('[CHECKER_STOCK] Bootstrap sync failed:', err.message);
-  }
 
   // Destructive wipe flags are CLI-only — never run on serverless boot.
   if (process.env.CLEAR_ALL_ORDERS === 'true' || process.env.CLEAR_ALL_CHECKERS === 'true') {
@@ -52,6 +75,7 @@ const bootstrap = async () => {
   }
 
   app = createApp();
+  runDeferredBootstrap();
   return app;
 };
 

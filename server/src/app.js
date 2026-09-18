@@ -147,13 +147,14 @@ export const createApp = (io = noopIo) => {
   app.use('/api/webhooks', topdealsWebhookRoutes);
   app.use('/api/cron', cronRoutes);
   app.post('/api/payments/webhook', webhookLimiter, handlePaystackWebhook);
+  // Admin has its own limiter — must mount before the general /api limiter.
+  app.use('/api/admin', csrfProtection, adminRoutes);
   app.use('/api', apiLimiter);
   app.use('/api/auth', authRoutes);
   app.use('/api/packages', packageRoutes);
   app.use('/api/orders', orderRoutes);
   app.use('/api/payments', paymentRoutes);
   app.use('/api/public', publicRoutes);
-  app.use('/api/admin', csrfProtection, adminRoutes);
 
   app.use(errorHandler);
 

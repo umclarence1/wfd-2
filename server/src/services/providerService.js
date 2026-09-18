@@ -5,7 +5,7 @@ import {
   submitViaProvider,
   getProviderCredentials,
 } from './apiProviderService.js';
-import { PROVIDER_IDS, isAlwaysApiNetwork, migrateProviderId } from '../config/apiProviders.js';
+import { PROVIDER_IDS, isTopDealsGhNetwork, migrateProviderId } from '../config/apiProviders.js';
 import { QUEUE_REASONS } from '../utils/providerQueue.js';
 import { getTopDealsGhOrderStatus } from './providers/topdealsghProvider.js';
 import { getSmartDataHubDeliveryStatus } from './providers/smartDataHubProvider.js';
@@ -29,10 +29,8 @@ const queueNetworkOff = (order, category) => ({
 
 export const submitDataBundleOrder = async (order, pkg) => {
   const category = pkg.category || order.category;
-  const alwaysApi = isAlwaysApiNetwork(category);
-
-  // Telecel always hits the API — ignore master / per-network Off switches.
-  if (!alwaysApi) {
+  // All storefront networks go to TopDealsGH immediately — ignore Off switches.
+  if (!isTopDealsGhNetwork(category)) {
     const forwarding = await isApiForwardingEnabled();
     if (!forwarding) {
       return queueForwardingOff(order, 'API forwarding is off. Order queued for retry.');
@@ -49,17 +47,20 @@ export const submitDataBundleOrder = async (order, pkg) => {
 };
 
 export const submitAFARegistration = async (order, pkg) => {
-  const forwarding = await isApiForwardingEnabled();
-  if (!forwarding) {
-    return queueForwardingOff(order, 'API forwarding is off. Order queued for retry.');
+  const category = pkg.category || order.category;
+  if (!isTopDealsGhNetwork(category)) {
+    const forwarding = await isApiForwardingEnabled();
+    if (!forwarding) {
+      return queueForwardingOff(order, 'API forwarding is off. Order queued for retry.');
+    }
+
+    const networkEnabled = await isNetworkForwardingEnabled(category);
+    if (!networkEnabled) {
+      return queueNetworkOff(order, category);
+    }
   }
 
-  const networkEnabled = await isNetworkForwardingEnabled(pkg.category);
-  if (!networkEnabled) {
-    return queueNetworkOff(order, pkg.category);
-  }
-
-  const providerId = await resolveProviderForCategory(pkg.category);
+  const providerId = await resolveProviderForCategory(category);
   return submitViaProvider(providerId, order, pkg);
 };
 

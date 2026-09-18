@@ -1,5 +1,6 @@
 import { fulfillOrder } from './orderService.js';
 import { findQueuedProviderOrders, findRetryableFailedOrders, findUnsubmittedProviderOrders } from './orderQueueService.js';
+import { shouldSkipAutoFulfillment } from '../utils/fulfillmentLock.js';
 
 export const retryQueuedProviderOrders = async (io, { limit = 25 } = {}) => {
   const queued = await findQueuedProviderOrders(limit);
@@ -19,6 +20,19 @@ export const retryQueuedProviderOrders = async (io, { limit = 25 } = {}) => {
 
   for (const order of orders) {
     try {
+      if (shouldSkipAutoFulfillment(order) || order.metadata?.submittedToProvider) {
+        results.push({
+          reference: order.reference,
+          status: order.deliveryStatus,
+          success: true,
+          skipped: true,
+          message: order.metadata?.submittedToProvider
+            ? 'Already submitted to provider.'
+            : 'Manual fulfillment — skipped.',
+        });
+        continue;
+      }
+
       if (order.deliveryStatus === 'failed') {
         order.deliveryStatus = 'processing';
         order.metadata = {

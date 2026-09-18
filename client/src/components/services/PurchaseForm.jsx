@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { usePackagesByCategory } from '../../hooks/usePackages';
-import api from '../../api/client';
+import api, { ensureCsrfToken } from '../../api/client';
 import {
   validateNetworkPhone,
   validateEmail,
@@ -48,6 +48,10 @@ export default function PurchaseForm({
   const { isOnline } = useOnlineStatus();
   const navigate = useNavigate();
   const { formRef, keyboardInset, onFieldFocus } = usePurchaseFormKeyboard();
+
+  useEffect(() => {
+    ensureCsrfToken().catch(() => {});
+  }, []);
   const { packages: afaPackages, isFetching: afaLoading } = usePackagesByCategory('MTN AFA');
   const { packages: catalogPackages } = usePackagesByCategory(!isChecker ? category : '');
 
@@ -222,22 +226,44 @@ export default function PurchaseForm({
       sessionStorage.setItem('wds_order_email', emailResult.normalized);
 
       const idempotencyKey = globalThis.crypto?.randomUUID?.() || `ord-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      const { data } = await api.post('/orders/create', payload, {
+      const { data: body } = await api.post('/orders/create', payload, {
         headers: { 'Idempotency-Key': idempotencyKey },
+        timeout: 60000,
       });
 
-      if (data.order?.isFreeOrder) {
-        toast('Order completed successfully!', 'success');
-        navigate(`/payment/callback?reference=${data.order.reference}&free=true`);
+      if (!body?.success) {
+        toast(body?.message || 'Could not start checkout. Please try again.', 'error');
         return;
       }
 
-      if (data.payment?.authorizationUrl) {
-        sessionStorage.setItem('wds_payment_reference', data.checkout?.paymentReference || '');
-        window.location.href = data.payment.authorizationUrl;
-      } else {
-        toast('Could not start payment. Please try again.', 'error');
+      const order = body.order;
+      const checkout = body.checkout;
+      const payment = body.payment;
+
+      if (order?.isFreeOrder && order.reference) {
+        toast('Order completed successfully!', 'success');
+        navigate(`/payment/callback?reference=${order.reference}&free=true`);
+        return;
       }
+
+      if (order?.alreadyPaid && order.reference) {
+        toast('Payment already completed.', 'success');
+        navigate(`/payment/callback?reference=${order.paymentReference || order.reference}`);
+        return;
+      }
+
+      const payUrl = payment?.authorizationUrl;
+      const paymentReference = checkout?.paymentReference || order?.paymentReference;
+
+      if (payUrl) {
+        if (paymentReference) {
+          sessionStorage.setItem('wds_payment_reference', paymentReference);
+        }
+        window.location.href = payUrl;
+        return;
+      }
+
+      toast(body?.message || 'Could not start payment. Please try again.', 'error');
     } catch (err) {
       toast(getOfflineAwareErrorMessage(err, 'Failed to create order.'), 'error');
     } finally {
@@ -390,7 +416,7 @@ export default function PurchaseForm({
             disabled={submitting || !isOnline || !selected}
             className="w-full rounded-lg bg-[#8caf94] py-3.5 text-base font-bold uppercase tracking-wide text-white shadow-sm transition hover:bg-[#7da285] disabled:opacity-50"
           >
-            {submitting ? 'Processing...' : isOnline ? 'Buy Now' : 'Offline — payment unavailable'}
+            {submitting ? 'Opening Paystack...' : isOnline ? 'Buy Now' : 'Offline — payment unavailable'}
           </button>
         </form>
       </div>
@@ -509,7 +535,7 @@ export default function PurchaseForm({
 
           <button type="submit" disabled={submitting || !isOnline || !selected} className={buyButtonClass}>
             {submitting
-              ? 'Processing...'
+              ? 'Opening Paystack...'
               : isOnline
                 ? showAfaForm
                   ? 'Buy Now'

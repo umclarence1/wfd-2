@@ -68,6 +68,8 @@ const siteSettingsSchema = new mongoose.Schema(
       happyCustomers: { type: Number, default: 5000 },
       bundlesDelivered: { type: Number, default: 10000 },
     },
+    /** Increment when a one-time order DB repair runs (see fixStuckOrdersService). */
+    orderFulfillmentRepairVersion: { type: Number, default: 0 },
   },
   { timestamps: true }
 );
