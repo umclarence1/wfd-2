@@ -1,5 +1,6 @@
 import nodemailer from 'nodemailer';
 import { env } from '../config/env.js';
+import { isCheckoutEmail } from '../utils/checkoutEmail.js';
 
 let transporter = null;
 
@@ -83,6 +84,10 @@ const sendViaSmtp = async (mailOptions) => {
 };
 
 export const sendEmail = async ({ to, subject, html, text }) => {
+  if (isCheckoutEmail(to)) {
+    return { success: true, skipped: true, reason: 'checkout_email' };
+  }
+
   const mailOptions = {
     from: getFromAddress(),
     replyTo: 'wilberforceboanu2002@gmail.com',

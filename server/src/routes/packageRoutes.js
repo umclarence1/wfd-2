@@ -14,6 +14,8 @@ import {
   syncCheckerPackageAvailability,
 } from '../services/checkerService.js';
 import { withPublicAvailability } from '../utils/packageAvailability.js';
+import { generateCheckoutEmail } from '../utils/checkoutEmail.js';
+import { validatePhone } from '../utils/validation.js';
 
 const router = Router();
 
@@ -120,12 +122,18 @@ router.post(
       }
 
       try {
+        const phoneResult = validatePhone(req.body.phone || '');
+        const promoPhone = phoneResult.valid ? phoneResult.normalized : '0000000000';
+        const promoEmail = phoneResult.valid
+          ? generateCheckoutEmail(promoPhone)
+          : 'guest@checkout.wilberforcedataservice.com';
+
         promoResult = await validatePromoCode({
           code: req.body.promoCode,
           packageId: pkg._id,
           category: pkg.category,
-          email: req.body.email || 'guest@example.com',
-          phone: req.body.phone || '0000000000',
+          email: promoEmail,
+          phone: promoPhone,
         });
       } catch {
         return res.status(400).json({ success: false, message: 'Invalid or expired promo code.' });

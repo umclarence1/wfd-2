@@ -10,6 +10,7 @@ import {
   paymentReferenceSchema,
   otpRequestSchema,
   otpVerifySchema,
+  orderHistoryByReferencesSchema,
 } from '../schemas/zodSchemas.js';
 import {
   validateOrderInput,
@@ -63,7 +64,11 @@ router.post(
       await processFreeOrder(order, validated.promoResult, req.user, req.app.get('io'));
       return res.json({
         success: true,
-        order: { reference: order.reference, isFreeOrder: true },
+        order: {
+          reference: order.reference,
+          paymentReference: order.paymentReference,
+          isFreeOrder: true,
+        },
         message: 'Free order processed successfully.',
       });
     }
@@ -133,7 +138,9 @@ router.get(
   validateParams(paymentReferenceSchema),
   asyncHandler(async (req, res) => {
     const paymentRef = req.params.reference;
-    const order = await Order.findOne({ paymentReference: paymentRef });
+    let order =
+      (await Order.findOne({ paymentReference: paymentRef })) ||
+      (await Order.findOne({ reference: paymentRef, paymentStatus: 'paid' }));
 
     const emailClaim = String(req.query.email || req.headers['x-order-email'] || '')
       .trim()
@@ -141,17 +148,22 @@ router.get(
     const ownsOrder = Boolean(
       order && emailClaim && emailClaim === String(order.email || '').toLowerCase()
     );
-    const includeChecker = ownsOrder;
+    const customerOptions = (doc) => ({
+      includePhone: true,
+      includeChecker:
+        doc?.paymentStatus === 'paid' &&
+        (ownsOrder || doc?.serviceType === 'result_checker'),
+    });
 
     if (order?.paymentStatus === 'paid') {
-      const updated = includeChecker
-        ? await Order.findById(order._id)
-            .populate('checker', 'serialNumber pin checkerType')
-            .populate('checkers', 'serialNumber pin checkerType')
-        : order;
+      const updated = await Order.findById(order._id)
+        .populate('checker', 'serialNumber pin checkerType')
+        .populate('checkers', 'serialNumber pin checkerType')
+        .populate('package', 'dataAmount');
+      const opts = customerOptions(updated);
       return res.json({
         success: true,
-        order: sanitizeOrder(updated, { includeChecker }),
+        order: sanitizeOrder(updated, opts),
         alreadyPaid: true,
       });
     }
@@ -173,12 +185,40 @@ router.get(
       io: req.app.get('io'),
     });
 
-    const updated = includeChecker
-      ? await Order.findById(result.order._id)
-          .populate('checker', 'serialNumber pin checkerType')
-          .populate('checkers', 'serialNumber pin checkerType')
-      : result.order;
-    res.json({ success: true, order: sanitizeOrder(updated, { includeChecker }) });
+    const updated = await Order.findById(result.order._id)
+      .populate('checker', 'serialNumber pin checkerType')
+      .populate('checkers', 'serialNumber pin checkerType')
+      .populate('package', 'dataAmount');
+    res.json({ success: true, order: sanitizeOrder(updated, customerOptions(updated)) });
+  })
+);
+
+router.post(
+  '/history/by-references',
+  paymentLimiter,
+  validateBody(orderHistoryByReferencesSchema),
+  asyncHandler(async (req, res) => {
+    const refs = [...new Set(req.body.paymentReferences.map((r) => String(r).trim()))].slice(0, 50);
+
+    const orders = await Order.find({
+      paymentReference: { $in: refs },
+      paymentStatus: 'paid',
+    })
+      .sort({ createdAt: -1 })
+      .populate('package', 'dataAmount category name')
+      .populate('checker', 'serialNumber pin checkerType')
+      .populate('checkers', 'serialNumber pin checkerType')
+      .lean();
+
+    res.json({
+      success: true,
+      orders: orders.map((order) =>
+        sanitizeOrder(order, {
+          includePhone: true,
+          includeChecker: order.serviceType === 'result_checker',
+        })
+      ),
+    });
   })
 );
 

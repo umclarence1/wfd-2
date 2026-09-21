@@ -40,12 +40,12 @@ export default function PromotionsPage() {
         <h3 className="font-bold">How to use promo codes</h3>
         <ol className="mt-4 list-decimal space-y-2 pl-5 text-gray-600 dark:text-gray-400">
           <li>Select your service and package</li>
-          <li>Enter your phone number and email</li>
+          <li>Enter your phone number at checkout</li>
           <li>Enter your promo code and click Apply</li>
           <li>Proceed to payment with your discounted total</li>
         </ol>
         <p className="mt-4 text-sm text-gray-500">
-          Each promo code can only be used once per email, phone number, and account.
+          Each promo code can only be used once per phone number and account.
         </p>
       </div>
     </div>

@@ -3,7 +3,7 @@ export const FAQ_ITEMS = [
     q: 'How fast is data bundle delivery?',
     bullets: [
       'Telecel and AirtelTigo bundles are delivered instantly after successful payment.',
-      'BECE and WASSCE result checkers are delivered instantly via email and SMS.',
+      'BECE and WASSCE result checkers are delivered instantly via SMS.',
       'MTN bundles typically arrive within 1–30 minutes. During peak hours, delivery may take longer.',
     ],
   },
@@ -13,7 +13,7 @@ export const FAQ_ITEMS = [
   },
   {
     q: 'How do I check my order history?',
-    a: 'Go to Order History, enter your email, verify with a one-time code (OTP), and view all your past orders — no account required.',
+    a: 'Open Order History on the same phone or browser you used to pay. Your past orders appear automatically — no email or login required.',
   },
   {
     q: 'What payment methods do you accept?',

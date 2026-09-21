@@ -36,7 +36,7 @@ export const loginSchema = z.object({
 export const orderCreateSchema = z.object({
   packageId: objectId,
   phone,
-  email,
+  email: email.optional(),
   quantity: z.coerce.number().int().min(1).max(5).optional().default(1),
   promoCode: promoCode.optional(),
 });
@@ -52,6 +52,13 @@ export const otpRequestSchema = z.object({ email });
 export const otpVerifySchema = z.object({
   email,
   otp: z.string().trim().min(4).max(8),
+});
+
+export const orderHistoryByReferencesSchema = z.object({
+  paymentReferences: z
+    .array(z.string().trim().min(1).max(64))
+    .min(1, 'At least one payment reference is required.')
+    .max(50, 'Too many references.'),
 });
 
 export const adminLoginVerifySchema = z.object({

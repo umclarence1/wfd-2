@@ -4,6 +4,7 @@ import { PROVIDER_DEFINITIONS } from '../config/apiProviders.js';
 import { checkProviderStatus } from './providerService.js';
 import { resolveProviderForCategory } from './apiProviderService.js';
 import { sendNumberVerificationEmail } from './emailService.js';
+import { isCheckoutEmail } from '../utils/checkoutEmail.js';
 import { publishOrderUpdate } from './orderWebhookService.js';
 import { isRealProviderReference } from '../utils/providerReference.js';
 import {
@@ -50,7 +51,7 @@ export const maybeSendVerificationEmail = async (order, previousDeliveryStatus, 
   if (order.deliveryStatus !== 'verification') return false;
   if (previousDeliveryStatus === 'verification') return false;
   if (order.metadata?.verificationEmailSentAt) return false;
-  if (!order.email) return false;
+  if (!order.email || isCheckoutEmail(order.email)) return false;
 
   await sendNumberVerificationEmail(order.email, order);
   order.metadata = {

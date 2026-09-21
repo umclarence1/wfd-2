@@ -3,34 +3,18 @@ import { useSearchParams, Link } from 'react-router-dom';
 import api from '../api/client';
 import { CheckCircle, XCircle, Loader } from 'lucide-react';
 import { formatCurrency } from '../utils/validation';
+import { appendOrderToHistoryCookie } from '../utils/orderHistoryCookie';
 
 export default function PaymentCallbackPage() {
   const [searchParams] = useSearchParams();
   const [status, setStatus] = useState('loading');
   const [order, setOrder] = useState(null);
   const reference = searchParams.get('reference');
-  const isFree = searchParams.get('free');
 
   useEffect(() => {
-    if (isFree && reference) {
-      const email = sessionStorage.getItem('wds_order_email');
-      const url = email
-        ? `/orders/${reference}?email=${encodeURIComponent(email)}`
-        : `/orders/verify/${reference}`;
-
-      api.get(url).then(({ data }) => {
-        setOrder(data.order);
-        setStatus('success');
-      }).catch(() => setStatus('error'));
-      return;
-    }
-
     if (!reference) { setStatus('error'); return; }
 
-    const email = sessionStorage.getItem('wds_order_email');
-    const verifyUrl = email
-      ? `/orders/verify/${reference}?email=${encodeURIComponent(email)}`
-      : `/orders/verify/${reference}`;
+    const verifyUrl = `/orders/verify/${reference}`;
 
     const verifyWithRetry = async () => {
       const delays = [0, 2000, 4000, 6000, 8000];
@@ -49,10 +33,11 @@ export default function PaymentCallbackPage() {
     verifyWithRetry()
       .then(({ data }) => {
         setOrder(data.order);
+        appendOrderToHistoryCookie(data.order);
         setStatus('success');
       })
       .catch(() => setStatus('error'));
-  }, [reference, isFree]);
+  }, [reference]);
 
   return (
     <div className="flex min-h-[60vh] items-center justify-center px-4 py-12">

@@ -212,6 +212,7 @@ router.get('/orders', requirePermission('orders'), asyncHandler(async (req, res)
     const safe = escapeRegex(String(search).slice(0, 100));
     filter.$or = [
       { reference: { $regex: safe, $options: 'i' } },
+      { paymentReference: { $regex: safe, $options: 'i' } },
       { email: { $regex: safe, $options: 'i' } },
       { phone: { $regex: safe, $options: 'i' } },
       { packageName: { $regex: safe, $options: 'i' } },

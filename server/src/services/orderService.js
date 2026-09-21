@@ -3,7 +3,8 @@ import Order from '../models/Order.js';
 import Package from '../models/Package.js';
 import { getSiteSettings } from './siteSettingsService.js';
 import { generateReference } from '../utils/reference.js';
-import { validateNetworkPhone, validateEmail } from '../utils/validation.js';
+import { validateNetworkPhone } from '../utils/validation.js';
+import { generateCheckoutEmail } from '../utils/checkoutEmail.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { calculatePaystackCharge, calculateTotal } from '../services/paystackService.js';
 import { validatePromoCode, redeemPromoCode, calculatePromoPrice } from '../services/promoService.js';
@@ -32,6 +33,7 @@ import {
   sendOrderConfirmationEmail,
   sendCheckerDeliveryEmail,
 } from '../services/emailService.js';
+import { isCheckoutEmail } from '../utils/checkoutEmail.js';
 import { sendCheckerDeliverySMS } from './smsService.js';
 import { publishOrderUpdate } from './orderWebhookService.js';
 import { fulfillPaidOrderImmediately } from './immediateFulfillmentService.js';
@@ -52,11 +54,8 @@ export const getFreshPackage = async (packageId) => {
 };
 
 export const validateOrderInput = async (body, user) => {
-  const { packageId, phone, email, promoCode, quantity: rawQty } = body;
+  const { packageId, phone, promoCode, quantity: rawQty } = body;
   const quantity = Math.max(1, Math.min(5, Number(rawQty) || 1));
-
-  const emailResult = validateEmail(email);
-  if (!emailResult.valid) throw new AppError(emailResult.error, 400);
 
   const pkg = await getFreshPackage(packageId);
 
@@ -76,6 +75,8 @@ export const validateOrderInput = async (body, user) => {
   const phoneResult = validateNetworkPhone(phone, pkg.category);
   if (!phoneResult.valid) throw new AppError(phoneResult.error, 400);
 
+  const checkoutEmail = generateCheckoutEmail(phoneResult.normalized);
+
   const unitPrice = pkg.price;
 
   let promoResult = null;
@@ -89,7 +90,7 @@ export const validateOrderInput = async (body, user) => {
       code: promoCode,
       packageId,
       category: pkg.category,
-      email,
+      email: checkoutEmail,
       phone: phoneResult.normalized,
       userId: user?._id,
     });
@@ -106,7 +107,7 @@ export const validateOrderInput = async (body, user) => {
   return {
     pkg,
     phone: phoneResult.normalized,
-    email: emailResult.normalized,
+    email: checkoutEmail,
     promoResult,
     pricing,
     paystackCharge,
@@ -326,17 +327,18 @@ export const fulfillOrder = async (orderId, io) => {
         orderReference: order.reference,
       };
 
-      await Promise.allSettled([
-        sendCheckerDeliveryEmail(order.email, checkerPayload),
-        sendCheckerDeliverySMS(order.phone, checkerPayload),
-      ]);
+      const deliveryTasks = [sendCheckerDeliverySMS(order.phone, checkerPayload)];
+      if (!isCheckoutEmail(order.email)) {
+        deliveryTasks.push(sendCheckerDeliveryEmail(order.email, checkerPayload));
+      }
+      await Promise.allSettled(deliveryTasks);
     } else if (order.serviceType === 'data_bundle') {
       const providerResponse = await submitDataBundleWithPackageRetry(order, pkg);
       const { shouldNotify } = applyProviderFulfillment(order, providerResponse, {
         successStatus: 'processing',
       });
       await order.save();
-      if (shouldNotify) {
+      if (shouldNotify && !isCheckoutEmail(order.email)) {
         await Promise.allSettled([sendOrderConfirmationEmail(order.email, order)]);
       }
     } else if (order.serviceType === 'afa_registration') {
@@ -345,7 +347,7 @@ export const fulfillOrder = async (orderId, io) => {
         successStatus: 'processing',
       });
       await order.save();
-      if (shouldNotify) {
+      if (shouldNotify && !isCheckoutEmail(order.email)) {
         await sendOrderConfirmationEmail(order.email, order);
       }
     }

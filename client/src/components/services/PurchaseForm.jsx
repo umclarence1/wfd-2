@@ -5,7 +5,6 @@ import { usePackagesByCategory } from '../../hooks/usePackages';
 import api, { ensureCsrfToken } from '../../api/client';
 import {
   validateNetworkPhone,
-  validateEmail,
   normalizePhone,
   restrictPhoneInput,
   calculatePaymentBreakdown,
@@ -36,7 +35,6 @@ export default function PurchaseForm({
   const [selected, setSelected] = useState(null);
   const quantity = 1;
   const [phone, setPhone] = useState('');
-  const [email, setEmail] = useState('');
   const [promoCode, setPromoCode] = useState('');
   const [promoApplied, setPromoApplied] = useState('');
   const [breakdown, setBreakdown] = useState(null);
@@ -140,7 +138,6 @@ export default function PurchaseForm({
       try {
         const { data } = await api.post(`/packages/${selected._id}/breakdown`, {
           promoCode: promoApplied,
-          email,
           phone: normalizePhone(phone),
         });
         setBreakdown(data.breakdown);
@@ -153,7 +150,7 @@ export default function PurchaseForm({
     };
 
     fetchBreakdown();
-  }, [selected, promoApplied, email, phone]);
+  }, [selected, promoApplied, phone]);
 
   const handleApplyPromo = async () => {
     if (!promoCode.trim() || !selected) return;
@@ -163,10 +160,10 @@ export default function PurchaseForm({
       return;
     }
 
-    const emailResult = validateEmail(email);
-    if (!emailResult.valid) {
-      setErrors((prev) => ({ ...prev, email: emailResult.error }));
-      toast(emailResult.error, 'error');
+    const phoneResult = validateNetworkPhone(phone, category);
+    if (!phoneResult.valid) {
+      setErrors((prev) => ({ ...prev, phone: phoneResult.error }));
+      toast(phoneResult.error, 'error');
       return;
     }
 
@@ -174,8 +171,7 @@ export default function PurchaseForm({
     try {
       const { data } = await api.post(`/packages/${selected._id}/breakdown`, {
         promoCode: promoCode.trim(),
-        email,
-        phone: normalizePhone(phone),
+        phone: phoneResult.normalized,
       });
       setBreakdown(data.breakdown);
       setPromoApplied(promoCode.trim());
@@ -191,9 +187,6 @@ export default function PurchaseForm({
   const validate = () => {
     const newErrors = {};
     if (!selected) newErrors.package = 'Please select a package.';
-
-    const emailResult = validateEmail(email);
-    if (!emailResult.valid) newErrors.email = emailResult.error;
 
     const phoneResult = validateNetworkPhone(phone, category);
     if (!phoneResult.valid) newErrors.phone = phoneResult.error;
@@ -214,16 +207,12 @@ export default function PurchaseForm({
 
     setSubmitting(true);
     try {
-      const emailResult = validateEmail(email);
       const payload = {
         packageId: selected._id,
         phone: normalizePhone(phone),
-        email: emailResult.normalized,
         quantity: isChecker ? quantity : 1,
         promoCode: promoApplied || undefined,
       };
-
-      sessionStorage.setItem('wds_order_email', emailResult.normalized);
 
       const idempotencyKey = globalThis.crypto?.randomUUID?.() || `ord-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       const { data: body } = await api.post('/orders/create', payload, {
@@ -242,7 +231,7 @@ export default function PurchaseForm({
 
       if (order?.isFreeOrder && order.reference) {
         toast('Order completed successfully!', 'success');
-        navigate(`/payment/callback?reference=${order.reference}&free=true`);
+        navigate(`/payment/callback?reference=${order.paymentReference || order.reference}`);
         return;
       }
 
@@ -280,57 +269,27 @@ export default function PurchaseForm({
         ? 'w-full rounded-lg border border-[#E40520] bg-[#E40520] py-3.5 text-base font-bold text-white shadow-sm transition hover:bg-[#c9041c] disabled:opacity-50'
         : 'btn-primary w-full !py-3.5';
 
-  const phoneEmailFields = (
-    <>
-      <div>
-        <label className="mb-1.5 block text-sm font-semibold text-gray-800">
-          Beneficiary Phone Number <span className="text-red-600">*</span>
-        </label>
-        <input
-          className={fieldClass(errors.phone, brand.inputFocus)}
-          value={phone}
-          onChange={(e) => {
-            setPhone(restrictPhoneInput(e.target.value));
-            clearError('phone');
-          }}
-          onFocus={onFieldFocus}
-          placeholder="enter number here (0598104488)"
-          inputMode="numeric"
-          maxLength={10}
-          autoComplete="tel"
-          enterKeyHint="next"
-        />
-        <FormError message={errors.phone} />
-      </div>
-
-      <div>
-        <label className="mb-1.5 block text-sm font-semibold text-gray-800">
-          Email <span className="text-red-600">*</span>
-        </label>
-        <input
-          className={fieldClass(errors.email, brand.inputFocus)}
-          type="email"
-          inputMode="email"
-          autoComplete="email"
-          value={email}
-          onChange={(e) => {
-            setEmail(e.target.value);
-            clearError('email');
-          }}
-          onFocus={onFieldFocus}
-          onBlur={() => {
-            if (!email.trim()) return;
-            const result = validateEmail(email);
-            if (!result.valid) {
-              setErrors((prev) => ({ ...prev, email: result.error }));
-            }
-          }}
-          placeholder="enter email here"
-          enterKeyHint="done"
-        />
-        <FormError message={errors.email} />
-      </div>
-    </>
+  const phoneField = (
+    <div>
+      <label className="mb-1.5 block text-sm font-semibold text-gray-800">
+        Beneficiary Phone Number <span className="text-red-600">*</span>
+      </label>
+      <input
+        className={fieldClass(errors.phone, brand.inputFocus)}
+        value={phone}
+        onChange={(e) => {
+          setPhone(restrictPhoneInput(e.target.value));
+          clearError('phone');
+        }}
+        onFocus={onFieldFocus}
+        placeholder="enter number here (0598104488)"
+        inputMode="numeric"
+        maxLength={10}
+        autoComplete="tel"
+        enterKeyHint="done"
+      />
+      <FormError message={errors.phone} />
+    </div>
   );
 
   if (isChecker) {
@@ -386,7 +345,7 @@ export default function PurchaseForm({
             </p>
           </div>
 
-          {phoneEmailFields}
+          {phoneField}
 
           {showPromoField && (
             <div>
@@ -508,7 +467,7 @@ export default function PurchaseForm({
             )}
           </div>
 
-          {phoneEmailFields}
+          {phoneField}
 
           {showPromoField && (
             <div>

@@ -37,6 +37,16 @@ export const sanitizeOrderForCustomer = (order, { includeChecker = false, includ
     createdAt: order.createdAt,
   };
 
+  if (order.paymentStatus === 'paid' && order.paymentReference) {
+    safe.paymentReference = order.paymentReference;
+  }
+
+  const dataAmount =
+    order.package?.dataAmount ||
+    order.dataAmount ||
+    null;
+  if (dataAmount) safe.dataAmount = dataAmount;
+
   if (includePhone) {
     safe.phone = order.phone;
   }

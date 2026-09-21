@@ -69,9 +69,10 @@ const escapeCsv = (value) => {
 };
 
 const downloadOrdersCsv = (orders, networkKey) => {
-  const header = ['Order ID', 'Customer', 'Phone', 'Bundle', 'Amount', 'Payment', 'Status', 'Date'];
+  const header = ['Order ID', 'Paystack ref', 'Customer', 'Phone', 'Bundle', 'Amount', 'Payment', 'Status', 'Date'];
   const rows = orders.map((order) => [
     order.reference,
+    order.paymentReference || '',
     order.email,
     order.phone,
     formatBundle(order),
@@ -234,7 +235,7 @@ export default function AdminOrdersPage() {
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
           <input
             className="admin-search-input"
-            placeholder="Search phone numbers, order IDs, emails..."
+            placeholder="Search phone, order ID, Paystack ref, email…"
             value={searchDraft}
             onChange={(e) => setSearchDraft(e.target.value)}
           />
@@ -360,6 +361,7 @@ export default function AdminOrdersPage() {
                   />
                 </th>
                 <th>Order ID</th>
+                <th>Paystack ref</th>
                 <th>Customer</th>
                 <th>Phone</th>
                 <th>Bundle</th>
@@ -372,7 +374,7 @@ export default function AdminOrdersPage() {
             <tbody>
               {orders.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="py-10 text-center text-slate-500">
+                  <td colSpan={10} className="py-10 text-center text-slate-500">
                     No orders found for the selected filters.
                   </td>
                 </tr>
@@ -395,8 +397,11 @@ export default function AdminOrdersPage() {
                       <td className="whitespace-nowrap font-mono text-xs font-semibold text-slate-900">
                         {order.reference}
                       </td>
-                      <td className="max-w-[220px]">
-                        <p className="truncate text-sm font-medium text-slate-900">{order.email}</p>
+                      <td className="max-w-[160px] font-mono text-xs text-slate-800">
+                        <span className="break-all">{order.paymentReference || '—'}</span>
+                      </td>
+                      <td className="max-w-[180px]">
+                        <p className="truncate text-xs text-slate-500">{order.email}</p>
                         {order.paymentStatus !== 'paid' && (
                           <p className="mt-0.5 text-xs font-semibold uppercase text-slate-500">
                             Payment: {formatStatusLabel(order.paymentStatus)}
