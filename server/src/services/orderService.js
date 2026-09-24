@@ -26,9 +26,12 @@ import { QUEUE_REASONS } from '../utils/providerQueue.js';
 import {
   claimFulfillmentWithRetry,
   isOrderSubmittedToProvider,
+  isWithinProviderPurchaseCooldown,
+  markOrderSubmittedToProvider,
   releaseFulfillmentLock,
   shouldNeverResubmitToProvider,
 } from '../utils/fulfillmentLock.js';
+import { isRealProviderReference } from '../utils/providerReference.js';
 import {
   sendOrderConfirmationEmail,
   sendCheckerDeliveryEmail,
@@ -210,6 +213,18 @@ export const fulfillOrder = async (orderId, io) => {
     if (!order || order.paymentStatus !== 'paid') return order;
     if (shouldNeverResubmitToProvider(order)) return order;
 
+    if (isRealProviderReference(order.providerReference, order.reference)) {
+      if (!isOrderSubmittedToProvider(order)) {
+        markOrderSubmittedToProvider(order, order.providerReference, order.providerId);
+        await order.save();
+      }
+      return order;
+    }
+
+    if (isWithinProviderPurchaseCooldown(order) && !isOrderSubmittedToProvider(order)) {
+      return order;
+    }
+
     const previousPaymentStatus = order.paymentStatus;
     const previousDeliveryStatus = order.deliveryStatus;
 
@@ -339,6 +354,12 @@ export const fulfillOrder = async (orderId, io) => {
       }
       await Promise.allSettled(deliveryTasks);
     } else if (order.serviceType === 'data_bundle') {
+      order.metadata = {
+        ...(order.metadata || {}),
+        providerPurchaseAttemptedAt: new Date().toISOString(),
+      };
+      await order.save();
+
       const providerResponse = await submitDataBundleWithPackageRetry(order, pkg);
       const { shouldNotify } = applyProviderFulfillment(order, providerResponse, {
         successStatus: 'processing',
@@ -348,6 +369,12 @@ export const fulfillOrder = async (orderId, io) => {
         await Promise.allSettled([sendOrderConfirmationEmail(order.email, order)]);
       }
     } else if (order.serviceType === 'afa_registration') {
+      order.metadata = {
+        ...(order.metadata || {}),
+        providerPurchaseAttemptedAt: new Date().toISOString(),
+      };
+      await order.save();
+
       const providerResponse = await submitAFARegistration(order, pkg);
       const { shouldNotify } = applyProviderFulfillment(order, providerResponse, {
         successStatus: 'processing',

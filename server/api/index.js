@@ -9,7 +9,7 @@ import { notifyStaleMtnPendingOrders } from '../src/services/mtnPendingNoticeSer
 import { syncCheckerPackageAvailability } from '../src/services/checkerService.js';
 import { syncTopDealsPackageIds } from '../src/services/topdealsPackageSyncService.js';
 
-const BACKGROUND_JOB_MS = 15 * 1000;
+const BACKGROUND_JOB_MS = 60 * 1000;
 let lastBackgroundJob = 0;
 
 const maybeRunBackgroundJobs = () => {

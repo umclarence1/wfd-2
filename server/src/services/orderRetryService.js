@@ -1,6 +1,11 @@
 import { fulfillOrder } from './orderService.js';
 import { findQueuedProviderOrders, findRetryableFailedOrders, findUnsubmittedProviderOrders } from './orderQueueService.js';
-import { shouldSkipAutoFulfillment } from '../utils/fulfillmentLock.js';
+import {
+  isOrderSubmittedToProvider,
+  isWithinProviderPurchaseCooldown,
+  shouldSkipAutoFulfillment,
+} from '../utils/fulfillmentLock.js';
+import { QUEUE_REASONS } from '../utils/providerQueue.js';
 
 export const retryQueuedProviderOrders = async (io, { limit = 25 } = {}) => {
   const queued = await findQueuedProviderOrders(limit);
@@ -20,15 +25,40 @@ export const retryQueuedProviderOrders = async (io, { limit = 25 } = {}) => {
 
   for (const order of orders) {
     try {
-      if (shouldSkipAutoFulfillment(order) || order.metadata?.submittedToProvider) {
+      if (shouldSkipAutoFulfillment(order) || isOrderSubmittedToProvider(order)) {
         results.push({
           reference: order.reference,
           status: order.deliveryStatus,
           success: true,
           skipped: true,
-          message: order.metadata?.submittedToProvider
+          message: isOrderSubmittedToProvider(order)
             ? 'Already submitted to provider.'
             : 'Manual fulfillment — skipped.',
+        });
+        continue;
+      }
+
+      if (
+        order.metadata?.queueReason === QUEUE_REASONS.INSUFFICIENT_BALANCE
+        && isWithinProviderPurchaseCooldown(order)
+      ) {
+        results.push({
+          reference: order.reference,
+          status: order.deliveryStatus,
+          success: true,
+          skipped: true,
+          message: 'Waiting for wallet balance — skip duplicate API purchase.',
+        });
+        continue;
+      }
+
+      if (isWithinProviderPurchaseCooldown(order)) {
+        results.push({
+          reference: order.reference,
+          status: order.deliveryStatus,
+          success: true,
+          skipped: true,
+          message: 'Recent provider attempt — cooldown active.',
         });
         continue;
       }

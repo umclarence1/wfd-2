@@ -1,4 +1,5 @@
 import Order from '../models/Order.js';
+import { isRealProviderReference } from './providerReference.js';
 
 const LOCK_STALE_MS = 5 * 60 * 1000;
 export const MAX_NEVER_SUBMITTED_RETRIES = 15;
@@ -32,13 +33,23 @@ export const shouldNeverResubmitToProvider = (order) => {
   return isOrderSubmittedToProvider(order);
 };
 
-/** Only explicit flags count — stale providerReference must not block resubmit. */
+/** Order already accepted by TopDealsGH / provider — do not purchase again. */
 export const isOrderSubmittedToProvider = (order) => {
   if (!order) return false;
   if (order.metadata?.submittedToProvider === true) return true;
   if (order.providerResponse?.alreadySubmitted === true) return true;
   if (order.providerResponse?.success === true && order.metadata?.fulfilledAt) return true;
+  if (order.providerResponse?.orderId) return true;
+  if (isRealProviderReference(order.providerReference, order.reference)) return true;
   return false;
+};
+
+export const PROVIDER_PURCHASE_COOLDOWN_MS = 90 * 1000;
+
+export const isWithinProviderPurchaseCooldown = (order) => {
+  const at = order?.metadata?.providerPurchaseAttemptedAt;
+  if (!at) return false;
+  return Date.now() - new Date(at).getTime() < PROVIDER_PURCHASE_COOLDOWN_MS;
 };
 
 export const hasExhaustedSubmitRetries = (order) =>

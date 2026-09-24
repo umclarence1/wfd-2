@@ -1,7 +1,6 @@
 import Order from '../models/Order.js';
 import PromoCode from '../models/PromoCode.js';
 import { fulfillPaidOrderImmediately } from './immediateFulfillmentService.js';
-import { retryQueuedProviderOrders } from './orderRetryService.js';
 import { redeemPromoCodeAtomic } from './promoService.js';
 import {
   createOrderFromPendingPayment,
@@ -10,11 +9,6 @@ import {
 import { AppError } from '../middleware/errorHandler.js';
 import { logSecurityEvent } from './securityLogger.js';
 import { publishOrderUpdate } from './orderWebhookService.js';
-import {
-  isOrderSubmittedToProvider,
-  shouldNeverResubmitToProvider,
-} from '../utils/fulfillmentLock.js';
-
 const AMOUNT_TOLERANCE = 0.02;
 
 const validatePaidAmount = (amountPaid, expectedTotal, paymentReference) => {
@@ -44,21 +38,6 @@ export const markOrderPaidFromPaystack = async ({
 
   if (order?.paymentStatus === 'paid') {
     logSecurityEvent('duplicate_payment_webhook', { paymentReference });
-    // Only retry fulfillment if never submitted to the provider — avoids duplicate API orders.
-    if (!shouldNeverResubmitToProvider(order)) {
-      if (order.deliveryStatus === 'failed' || order.deliveryStatus === 'pending') {
-        order.deliveryStatus = 'processing';
-        await order.save();
-      }
-      try {
-        order = (await fulfillPaidOrderImmediately(order._id, io)) || order;
-      } catch (err) {
-        console.error('[PAYMENT] Re-fulfillment failed:', order.reference, err.message);
-      }
-      if (order && !isOrderSubmittedToProvider(order) && order.serviceType !== 'result_checker') {
-        retryQueuedProviderOrders(io).catch(() => {});
-      }
-    }
     return { order, duplicate: true };
   }
 
@@ -120,18 +99,6 @@ export const markOrderPaidFromPaystack = async ({
   } catch (err) {
     console.error('[PAYMENT] Immediate fulfillment error:', order.reference, err.message);
     refreshed = await Order.findById(order._id);
-  }
-
-  if (refreshed && !isOrderSubmittedToProvider(refreshed) && refreshed.serviceType !== 'result_checker') {
-    if (!refreshed.metadata?.queuedForProvider) {
-      refreshed.metadata = {
-        ...(refreshed.metadata || {}),
-        queuedForProvider: true,
-        queueReason: refreshed.metadata?.queueReason || 'awaiting_provider_submit',
-      };
-      await refreshed.save();
-    }
-    retryQueuedProviderOrders(io).catch(() => {});
   }
 
   return { order: refreshed || order, duplicate: false };
