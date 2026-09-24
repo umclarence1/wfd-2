@@ -31,6 +31,8 @@ const siteSettingsSchema = new mongoose.Schema(
       link: { type: String, default: '' },
     },
     promoCheckoutEnabled: { type: Boolean, default: false },
+    /** When false, result checkers are out of stock and cannot be purchased. */
+    checkersSalesEnabled: { type: Boolean, default: false },
     providerApiUrl: { type: String, default: '' },
     providerApiKeyEncrypted: { type: String, default: '' },
     apiProviderSettings: {

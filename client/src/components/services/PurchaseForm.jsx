@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { usePackagesByCategory } from '../../hooks/usePackages';
@@ -19,6 +19,25 @@ import { WAEC_IMAGE } from '../../constants/packageImages';
 import { getNetworkBrandColors } from '../../constants/networkColors';
 import FormError, { fieldClass } from '../ui/FormError';
 import { usePurchaseFormKeyboard } from '../../hooks/usePurchaseFormKeyboard';
+import { Loader2 } from 'lucide-react';
+
+const buyLabelWhenIdle = ({
+  isOnline,
+  packageId,
+  phoneValidation,
+  isChecker,
+  showAfaForm,
+}) => {
+  if (!isOnline) return 'Offline — payment unavailable';
+  if (!packageId) {
+    if (isChecker) return 'Select exam type';
+    if (showAfaForm) return 'Loading package…';
+    return 'Select data size';
+  }
+  if (!phoneValidation.valid) return 'Enter valid phone number';
+  if (isChecker || showAfaForm) return 'Buy Now';
+  return 'BUY';
+};
 
 export default function PurchaseForm({
   category,
@@ -160,7 +179,7 @@ export default function PurchaseForm({
       return;
     }
 
-    const phoneResult = validateNetworkPhone(phone, category);
+    const phoneResult = validateNetworkPhone(phone, isChecker ? null : category);
     if (!phoneResult.valid) {
       setErrors((prev) => ({ ...prev, phone: phoneResult.error }));
       toast(phoneResult.error, 'error');
@@ -169,7 +188,8 @@ export default function PurchaseForm({
 
     setLoadingBreakdown(true);
     try {
-      const { data } = await api.post(`/packages/${selected._id}/breakdown`, {
+      const breakdownPackageId = selected?._id || selected?.id;
+      const { data } = await api.post(`/packages/${breakdownPackageId}/breakdown`, {
         promoCode: promoCode.trim(),
         phone: phoneResult.normalized,
       });
@@ -184,15 +204,30 @@ export default function PurchaseForm({
     }
   };
 
+  const packageId = selected?._id || selected?.id;
+
+  const phoneValidation = useMemo(
+    () => validateNetworkPhone(phone, isChecker ? null : category),
+    [phone, category, isChecker]
+  );
+
+  const purchaseReady = Boolean(packageId) && phoneValidation.valid;
+
   const validate = () => {
     const newErrors = {};
-    if (!selected) newErrors.package = 'Please select a package.';
+    if (!packageId) {
+      newErrors.package = isChecker
+        ? 'Please select an exam type.'
+        : 'Please select a data size.';
+    }
 
-    const phoneResult = validateNetworkPhone(phone, category);
-    if (!phoneResult.valid) newErrors.phone = phoneResult.error;
+    if (!phoneValidation.valid) {
+      newErrors.phone = phoneValidation.error;
+    }
 
     setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    const firstMessage = newErrors.package || newErrors.phone;
+    return { ok: Object.keys(newErrors).length === 0, firstMessage };
   };
 
   const handleSubmit = async (e) => {
@@ -201,15 +236,18 @@ export default function PurchaseForm({
       toast(OFFLINE_ACTION_MESSAGE, 'error');
       return;
     }
-    if (!validate()) {
+    const validation = validate();
+    if (!validation.ok) {
+      toast(validation.firstMessage || 'Please check your details.', 'error');
       return;
     }
 
     setSubmitting(true);
+    let checkoutInProgress = false;
     try {
       const payload = {
-        packageId: selected._id,
-        phone: normalizePhone(phone),
+        packageId,
+        phone: phoneValidation.normalized || normalizePhone(phone),
         quantity: isChecker ? quantity : 1,
         promoCode: promoApplied || undefined,
       };
@@ -230,12 +268,14 @@ export default function PurchaseForm({
       const payment = body.payment;
 
       if (order?.isFreeOrder && order.reference) {
+        checkoutInProgress = true;
         toast('Order completed successfully!', 'success');
         navigate(`/payment/callback?reference=${order.paymentReference || order.reference}`);
         return;
       }
 
       if (order?.alreadyPaid && order.reference) {
+        checkoutInProgress = true;
         toast('Payment already completed.', 'success');
         navigate(`/payment/callback?reference=${order.paymentReference || order.reference}`);
         return;
@@ -245,10 +285,11 @@ export default function PurchaseForm({
       const paymentReference = checkout?.paymentReference || order?.paymentReference;
 
       if (payUrl) {
+        checkoutInProgress = true;
         if (paymentReference) {
           sessionStorage.setItem('wds_payment_reference', paymentReference);
         }
-        window.location.href = payUrl;
+        window.location.assign(payUrl);
         return;
       }
 
@@ -256,9 +297,17 @@ export default function PurchaseForm({
     } catch (err) {
       toast(getOfflineAwareErrorMessage(err, 'Failed to create order.'), 'error');
     } finally {
-      setSubmitting(false);
+      if (!checkoutInProgress) setSubmitting(false);
     }
   };
+
+  const idleBuyLabel = buyLabelWhenIdle({
+    isOnline,
+    packageId,
+    phoneValidation,
+    isChecker,
+    showAfaForm,
+  });
 
   const isSinglePage = !isChecker;
 
@@ -372,10 +421,11 @@ export default function PurchaseForm({
 
           <button
             type="submit"
-            disabled={submitting || !isOnline || !selected}
-            className="w-full rounded-lg bg-[#8caf94] py-3.5 text-base font-bold uppercase tracking-wide text-white shadow-sm transition hover:bg-[#7da285] disabled:opacity-50"
+            disabled={submitting || !isOnline || !purchaseReady}
+            className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#8caf94] py-3.5 text-base font-bold uppercase tracking-wide text-white shadow-sm transition hover:bg-[#7da285] disabled:opacity-50"
           >
-            {submitting ? 'Opening Paystack...' : isOnline ? 'Buy Now' : 'Offline — payment unavailable'}
+            {submitting && <Loader2 className="h-5 w-5 animate-spin" aria-hidden />}
+            {submitting ? 'Processing…' : idleBuyLabel}
           </button>
         </form>
       </div>
@@ -492,14 +542,13 @@ export default function PurchaseForm({
             </div>
           )}
 
-          <button type="submit" disabled={submitting || !isOnline || !selected} className={buyButtonClass}>
-            {submitting
-              ? 'Opening Paystack...'
-              : isOnline
-                ? showAfaForm
-                  ? 'Buy Now'
-                  : 'BUY'
-                : 'Offline — payment unavailable'}
+          <button
+            type="submit"
+            disabled={submitting || !isOnline || !purchaseReady}
+            className={`flex items-center justify-center gap-2 ${buyButtonClass}`}
+          >
+            {submitting && <Loader2 className="h-5 w-5 animate-spin" aria-hidden />}
+            {submitting ? 'Processing…' : idleBuyLabel}
           </button>
         </form>
       </div>

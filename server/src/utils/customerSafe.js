@@ -19,6 +19,7 @@ export const toPublicSiteSettings = (settings = {}) => ({
   announcementBanner: settings.announcementBanner,
   stats: settings.stats,
   promoCheckoutEnabled: settings.promoCheckoutEnabled,
+  checkersSalesEnabled: settings.checkersSalesEnabled === true,
   paystackPublicKey: settings.paystackPublicKey || process.env.PAYSTACK_PUBLIC_KEY || '',
 });
 

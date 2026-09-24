@@ -46,6 +46,12 @@ export const getFreshPackage = async (packageId) => {
   if (pkg.adminPaused) {
     throw new AppError('This package is currently unavailable. Please select another package.', 400, 'UNAVAILABLE');
   }
+  if (pkg.serviceType === 'result_checker') {
+    const settings = await getSiteSettings(true);
+    if (settings?.checkersSalesEnabled !== true) {
+      throw new AppError('Result checkers are currently out of stock.', 400, 'OUT_OF_STOCK');
+    }
+  }
   // Checkers use TopDealsGH live stock; other packages use local isAvailable.
   if (pkg.serviceType !== 'result_checker' && !pkg.isAvailable) {
     throw new AppError('This package is currently unavailable. Please select another package.', 400, 'UNAVAILABLE');
@@ -60,13 +66,13 @@ export const validateOrderInput = async (body, user) => {
   const pkg = await getFreshPackage(packageId);
 
   if (pkg.serviceType === 'result_checker') {
+    const settings = await getSiteSettings(true);
+    if (settings?.checkersSalesEnabled !== true) {
+      throw new AppError('Result checkers are currently out of stock.', 400, 'OUT_OF_STOCK');
+    }
     const inStock = await resolveCheckerInStock(pkg.checkerType, quantity);
     if (!inStock) {
-      throw new AppError(
-        `Only a limited number of checkers are left. Please choose quantity 1–5 based on stock.`,
-        400,
-        'OUT_OF_STOCK'
-      );
+      throw new AppError('Result checkers are currently out of stock.', 400, 'OUT_OF_STOCK');
     }
   } else if (quantity !== 1) {
     throw new AppError('Quantity selection is only available for result checkers.', 400);

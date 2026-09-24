@@ -1,4 +1,5 @@
 import Package from '../models/Package.js';
+import { getSiteSettings } from './siteSettingsService.js';
 import {
   getProviderCredentials,
   isApiForwardingEnabled,
@@ -87,9 +88,17 @@ const offerInStock = (offer, quantity = 1) => {
   return true;
 };
 
+export const areCheckerSalesEnabled = async () => {
+  const settings = await getSiteSettings(true);
+  return settings?.checkersSalesEnabled === true;
+};
+
 /** Map of checkerType (BECE/WASSCE) → in-stock boolean from TopDealsGH. */
 export const getCheckerStockMap = async () => {
   const map = { BECE: false, WASSCE: false };
+  if (!(await areCheckerSalesEnabled())) {
+    return map;
+  }
   if (!(await isApiForwardingEnabled()) || !(await isTopDealsGhConfigured())) {
     return map;
   }
@@ -110,6 +119,9 @@ export const getCheckerStockMap = async () => {
 
 /** Stock is managed on TopDealsGH — not local unused inventory. */
 export const resolveCheckerInStock = async (checkerType, quantity = 1) => {
+  if (!(await areCheckerSalesEnabled())) {
+    return false;
+  }
   if (!(await isApiForwardingEnabled()) || !(await isTopDealsGhConfigured())) {
     return false;
   }
@@ -125,6 +137,17 @@ export const resolveCheckerInStock = async (checkerType, quantity = 1) => {
 
 /** Mirror TopDealsGH stock onto local checker packages (respects adminPaused). */
 export const syncCheckerPackageAvailability = async () => {
+  if (!(await areCheckerSalesEnabled())) {
+    const updates = [];
+    for (const category of Object.values(CHECKER_CATEGORY_MAP)) {
+      const result = await Package.updateMany(
+        { category, serviceType: 'result_checker' },
+        { $set: { isAvailable: false } }
+      );
+      updates.push({ category, inStock: false, modifiedCount: result.modifiedCount });
+    }
+    return updates;
+  }
   const stockMap = await getCheckerStockMap();
   const updates = [];
 

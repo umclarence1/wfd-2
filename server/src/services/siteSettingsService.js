@@ -195,5 +195,9 @@ export const migrateSiteSettingsOnBoot = async () => {
 
   canonical.markModified('apiProviderSettings');
 
+  if (canonical.checkersSalesEnabled == null) {
+    canonical.checkersSalesEnabled = false;
+  }
+
   await canonical.save();
 };

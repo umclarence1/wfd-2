@@ -1,6 +1,8 @@
 import { Link } from 'react-router-dom';
 import { useMemo } from 'react';
 import { Globe } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import api from '../../api/client';
 import { usePackages } from '../../hooks/usePackages';
 import { useCheckerPackages } from '../../hooks/useCheckerPackages';
 
@@ -43,7 +45,7 @@ export const DATA_PLANS = [
   },
 ];
 
-function DataPlanCard({ plan, isAvailable, priority = false }) {
+function DataPlanCard({ plan, isAvailable, priority = false, outOfStockLabel = 'Unavailable' }) {
   if (plan.isWebDev) {
     return (
       <Link to={plan.link} className="interactive-card group flex flex-col">
@@ -88,7 +90,7 @@ function DataPlanCard({ plan, isAvailable, priority = false }) {
       <div className="overflow-hidden rounded-2xl border border-gray-200 bg-gray-50 opacity-70">
         {imageBlock}
         <p className="border-t border-gray-100 py-3 text-center text-sm font-bold text-gray-500">{plan.name}</p>
-        <p className="pb-3 text-center text-xs font-bold text-red-600">Unavailable</p>
+        <p className="pb-3 text-center text-xs font-bold text-red-600">{outOfStockLabel}</p>
       </div>
     );
   }
@@ -104,6 +106,14 @@ function DataPlanCard({ plan, isAvailable, priority = false }) {
 export default function DataPlanGrid({ plans = DATA_PLANS, title, subtitle, appendCard, hideUnavailable = true }) {
   const { data: packages = [], isFetched } = usePackages();
   const { data: checkerPackages = [], isFetched: checkersFetched } = useCheckerPackages();
+  const { data: siteSettings } = useQuery({
+    queryKey: ['settings'],
+    queryFn: () => api.get('/public/settings').then((r) => r.data.settings),
+    staleTime: 30_000,
+    placeholderData: {},
+  });
+
+  const checkersSalesEnabled = siteSettings?.checkersSalesEnabled === true;
 
   const mergedPackages = useMemo(() => {
     const withoutCheckers = packages.filter((p) => p.serviceType !== 'result_checker');
@@ -115,8 +125,15 @@ export default function DataPlanGrid({ plans = DATA_PLANS, title, subtitle, appe
   const checkersReady = checkersFetched || !plans.some((p) => p.id === 'waec');
   const stockReady = packagesReady && checkersReady;
 
+  const isPlanAvailable = (plan) => {
+    if (plan.id === 'waec' && !checkersSalesEnabled) return false;
+    if (!stockReady) return plan.id !== 'waec';
+    return isDataPlanAvailable(plan, mergedPackages);
+  };
+
   const visiblePlans = plans.filter((plan) => {
     if (plan.alwaysAvailable || plan.isWebDev) return true;
+    if (plan.id === 'waec' && !checkersSalesEnabled) return true;
     if (!hideUnavailable || !stockReady) return true;
     return isDataPlanAvailable(plan, mergedPackages);
   });
@@ -135,7 +152,8 @@ export default function DataPlanGrid({ plans = DATA_PLANS, title, subtitle, appe
           <DataPlanCard
             key={plan.id}
             plan={plan}
-            isAvailable={stockReady ? isDataPlanAvailable(plan, mergedPackages) : true}
+            isAvailable={isPlanAvailable(plan)}
+            outOfStockLabel={plan.id === 'waec' ? 'Out of stock' : 'Unavailable'}
             priority={index < 4}
           />
         ))}

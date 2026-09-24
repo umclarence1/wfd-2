@@ -15,6 +15,15 @@ export default function HeroSlider() {
     placeholderData: DEFAULT_SLIDER_SLIDES,
   });
 
+  const { data: siteSettings } = useQuery({
+    queryKey: ['settings'],
+    queryFn: () => api.get('/public/settings').then((r) => r.data.settings),
+    staleTime: 30_000,
+    placeholderData: {},
+  });
+
+  const checkersSalesEnabled = siteSettings?.checkersSalesEnabled === true;
+
   const sliders = apiSliders?.length ? apiSliders : DEFAULT_SLIDER_SLIDES;
 
   const [current, setCurrent] = useState(0);
@@ -105,12 +114,19 @@ export default function HeroSlider() {
                 <p className="mt-3 text-sm leading-relaxed text-gray-600 sm:mt-4 sm:text-base md:text-lg">
                   {slide.description}
                 </p>
-                <Link
-                  to={slide.buttonUrl || '/services'}
-                  className="btn-primary mt-5 w-full sm:mt-6 sm:w-auto"
-                >
-                  {slide.buttonText || 'Get Started'}
-                </Link>
+                {String(slide.buttonUrl || '').includes('/services/checkers') &&
+                !checkersSalesEnabled ? (
+                  <p className="mt-5 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-800 sm:mt-6">
+                    Result checkers are out of stock
+                  </p>
+                ) : (
+                  <Link
+                    to={slide.buttonUrl || '/services'}
+                    className="btn-primary mt-5 w-full sm:mt-6 sm:w-auto"
+                  >
+                    {slide.buttonText || 'Get Started'}
+                  </Link>
+                )}
               </motion.div>
             </AnimatePresence>
           </div>

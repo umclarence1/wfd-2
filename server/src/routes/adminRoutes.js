@@ -534,7 +534,7 @@ router.put('/settings', requirePermission('settings'), asyncHandler(async (req, 
   const allowed = [
     'siteName', 'tagline', 'logo', 'favicon', 'contactEmail', 'contactPhone', 'whatsapp',
     'address', 'socialLinks', 'maintenanceMode', 'maintenanceMessage', 'announcementBanner',
-    'paystackPublicKey', 'stats',
+    'paystackPublicKey', 'stats', 'checkersSalesEnabled',
   ];
   const updates = {};
   for (const key of allowed) {

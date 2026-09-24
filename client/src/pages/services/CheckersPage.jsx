@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import api from '../../api/client';
 import PurchaseForm from '../../components/services/PurchaseForm';
 import { useCheckerPackages } from '../../hooks/useCheckerPackages';
 
@@ -11,6 +13,13 @@ export const CHECKER_EXAM_TYPES = [
 export default function CheckersPage() {
   const [examType, setExamType] = useState(null);
   const { data: packages = [], isFetching, isPending, isError } = useCheckerPackages();
+  const { data: siteSettings } = useQuery({
+    queryKey: ['settings'],
+    queryFn: () => api.get('/public/settings').then((r) => r.data.settings),
+    staleTime: 30_000,
+  });
+
+  const checkersSalesEnabled = siteSettings?.checkersSalesEnabled === true;
 
   const availableExamTypes = useMemo(() => {
     return CHECKER_EXAM_TYPES.filter((opt) =>
@@ -60,6 +69,17 @@ export default function CheckersPage() {
           <div className="h-6 w-40 animate-pulse rounded bg-gray-200" />
         </div>
         <p className="mt-8 text-sm text-gray-500">Loading Result Checker...</p>
+      </div>
+    );
+  }
+
+  if (siteSettings && !checkersSalesEnabled) {
+    return (
+      <div className="mx-auto max-w-lg px-4 py-10">
+        <h1 className="text-xl font-bold text-gray-900">Result Checker</h1>
+        <div className="mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-center text-sm font-semibold text-red-800">
+          Result checkers are out of stock. Please check back later.
+        </div>
       </div>
     );
   }

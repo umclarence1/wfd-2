@@ -27,6 +27,7 @@ export default function AdminSettingsPage() {
         announcementEnabled: settings.announcementBanner?.enabled || false,
         announcementText: settings.announcementBanner?.text || '',
         announcementLink: settings.announcementBanner?.link || '',
+        checkersSalesEnabled: settings.checkersSalesEnabled === true,
       });
     }
   }, [settings]);
@@ -58,6 +59,7 @@ export default function AdminSettingsPage() {
         text: form.announcementText,
         link: form.announcementLink,
       },
+      checkersSalesEnabled: form.checkersSalesEnabled,
     });
   };
 
@@ -106,6 +108,20 @@ export default function AdminSettingsPage() {
             value={form.announcementLink}
             onChange={(e) => setForm({ ...form, announcementLink: e.target.value })}
           />
+        </div>
+
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <label className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+            <input
+              type="checkbox"
+              checked={form.checkersSalesEnabled}
+              onChange={(e) => setForm({ ...form, checkersSalesEnabled: e.target.checked })}
+            />
+            Allow result checker sales (BECE / WASSCE)
+          </label>
+          <p className="mt-2 text-xs text-gray-600">
+            Turn off to mark checkers out of stock — customers cannot open the purchase page.
+          </p>
         </div>
 
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
