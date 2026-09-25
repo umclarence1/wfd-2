@@ -162,50 +162,8 @@ export const autoSeedIfEmpty = async () => {
     console.log(`Set ${repairedPaid.modifiedCount} paid order(s) to processing.`);
   }
 
-  const reopenedStuck = await Order.updateMany(
-    {
-      paymentStatus: 'paid',
-      deliveryStatus: 'processing',
-      'metadata.submittedToProvider': { $ne: true },
-      'metadata.manuallyFulfilled': { $ne: true },
-      $or: [
-        { 'metadata.queuedForProvider': true },
-        { 'metadata.fulfillmentAbandoned': true },
-        { 'metadata.lastProviderError': { $exists: true, $ne: null } },
-        { 'metadata.lastFulfillmentError': { $exists: true, $ne: null } },
-      ],
-    },
-    {
-      $set: {
-        'metadata.queuedForProvider': true,
-        'metadata.fulfillmentAbandoned': false,
-      },
-    }
-  );
-  if (reopenedStuck.modifiedCount) {
-    console.log(`Re-queued ${reopenedStuck.modifiedCount} paid order(s) pending TopDeals submit.`);
-  }
-
-  const resetPackageRetries = await Order.updateMany(
-    {
-      paymentStatus: 'paid',
-      'metadata.submittedToProvider': { $ne: true },
-      'metadata.queueReason': 'package_unmatched',
-    },
-    {
-      $set: {
-        'metadata.queuedForProvider': true,
-        'metadata.fulfillmentAbandoned': false,
-        retryCount: 0,
-      },
-    }
-  );
-  if (resetPackageRetries.modifiedCount) {
-    console.log(`Reset ${resetPackageRetries.modifiedCount} package-mismatch order(s) for retry.`);
-  }
-
   try {
-    const repair = await runOrderFulfillmentRepair(null, { submit: true });
+    const repair = await runOrderFulfillmentRepair(null, { submit: false });
     if (repair.skipped) {
       console.log(`Order fulfillment repair skipped (v${repair.version}).`);
     } else {

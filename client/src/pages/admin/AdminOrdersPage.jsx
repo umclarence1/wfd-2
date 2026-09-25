@@ -179,6 +179,63 @@ export default function AdminOrdersPage() {
     });
   };
 
+  const markAllProcessing = useMutation({
+    mutationFn: () =>
+      api.patch('/admin/orders/mark-all-status', {
+        fromStatus: 'processing',
+        deliveryStatus: 'delivered',
+        network: network || undefined,
+        search: search || undefined,
+        confirm: true,
+      }),
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ['admin-orders'] });
+      queryClient.invalidateQueries({ queryKey: ['admin-orders-processing-count'] });
+      setSelectedIds(new Set());
+      const count = res.data.modifiedCount ?? 0;
+      toast(`Marked ${count} processing order${count === 1 ? '' : 's'} as delivered.`, 'success');
+    },
+    onError: (err) => toast(err.response?.data?.message || 'Could not update processing orders.', 'error'),
+  });
+
+  const { data: processingCountData } = useQuery({
+    queryKey: ['admin-orders-processing-count', network, search],
+    queryFn: () =>
+      api
+        .get('/admin/orders', {
+          params: {
+            status: 'processing',
+            network: network || undefined,
+            search: search || undefined,
+            limit: 1,
+          },
+        })
+        .then((r) => r.data),
+    enabled: status !== 'processing',
+    staleTime: 0,
+  });
+
+  const processingCount =
+    status === 'processing' ? total : processingCountData?.pagination?.total ?? 0;
+
+  const handleMarkAllProcessingDelivered = () => {
+    if (processingCount < 1) return;
+    const scope = [
+      network ? networkFilters.find((n) => n.key === network)?.label : 'all networks',
+      search ? `matching “${search}”` : null,
+    ]
+      .filter(Boolean)
+      .join(', ');
+    if (
+      !window.confirm(
+        `Mark all ${processingCount} processing order${processingCount === 1 ? '' : 's'} (${scope}) as delivered? They will not be sent to the TopDeals API again.`
+      )
+    ) {
+      return;
+    }
+    markAllProcessing.mutate();
+  };
+
   const applyBulkUpdate = () => {
     if (selectedIds.size === 0) return;
     bulkUpdateOrders.mutate({
@@ -290,7 +347,7 @@ export default function AdminOrdersPage() {
 
         <div>
           <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-400">Status</p>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {statusTabs.map((tab) => (
               <button
                 key={tab.key || 'all'}
@@ -301,7 +358,20 @@ export default function AdminOrdersPage() {
                 {tab.label}
               </button>
             ))}
+            <button
+              type="button"
+              onClick={handleMarkAllProcessingDelivered}
+              disabled={processingCount < 1 || markAllProcessing.isPending}
+              className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+            >
+              {markAllProcessing.isPending
+                ? 'Updating...'
+                : `Mark all processing as delivered${processingCount ? ` (${processingCount})` : ''}`}
+            </button>
           </div>
+          <p className="mt-2 text-xs text-slate-500">
+            This updates every paid processing order that matches the current network and search filters, not only the rows on this page.
+          </p>
         </div>
       </div>
 

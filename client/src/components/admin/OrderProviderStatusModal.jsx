@@ -18,6 +18,10 @@ const formatProviderStatus = (value) => {
   return value.charAt(0).toUpperCase() + value.slice(1);
 };
 
+const isLocalReference = (ref) =>
+  /^ORD-\d{8}-[A-Z0-9]{6,}$/i.test(String(ref || '').trim())
+  || /^PAY-/i.test(String(ref || '').trim());
+
 export default function OrderProviderStatusModal({ order, open, onClose, onSynced }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -72,7 +76,13 @@ export default function OrderProviderStatusModal({ order, open, onClose, onSynce
             <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
               <p className="text-xs font-bold uppercase tracking-wide text-slate-500">API reference</p>
               <p className="mt-1 break-all font-mono text-sm font-semibold text-slate-900">
-                {status?.apiReference || (status?.providerStatus === 'queued' ? 'Not submitted yet' : order.providerReference || '—')}
+                {status?.apiReference
+                  || (order.providerReference && !isLocalReference(order.providerReference)
+                    ? order.providerReference
+                    : null)
+                  || (status?.providerStatus === 'queued' || isLocalReference(order.providerReference)
+                    ? 'Not submitted yet'
+                    : '—')}
               </p>
             </div>
             <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">

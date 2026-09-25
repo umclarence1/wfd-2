@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { usePackagesByCategory } from '../../hooks/usePackages';
@@ -59,6 +59,7 @@ export default function PurchaseForm({
   const [breakdown, setBreakdown] = useState(null);
   const [loadingBreakdown, setLoadingBreakdown] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const submitLock = useRef(false);
   const [errors, setErrors] = useState({});
 
   const { toast } = useToast();
@@ -242,6 +243,8 @@ export default function PurchaseForm({
       return;
     }
 
+    if (submitLock.current) return;
+    submitLock.current = true;
     setSubmitting(true);
     let checkoutInProgress = false;
     try {
@@ -252,7 +255,12 @@ export default function PurchaseForm({
         promoCode: promoApplied || undefined,
       };
 
-      const idempotencyKey = globalThis.crypto?.randomUUID?.() || `ord-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const idempotencyStorageKey = `wds-pay-${phoneValidation.normalized || normalizePhone(phone)}-${packageId}`;
+      let idempotencyKey = sessionStorage.getItem(idempotencyStorageKey);
+      if (!idempotencyKey) {
+        idempotencyKey = globalThis.crypto?.randomUUID?.() || `ord-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        sessionStorage.setItem(idempotencyStorageKey, idempotencyKey);
+      }
       const { data: body } = await api.post('/orders/create', payload, {
         headers: { 'Idempotency-Key': idempotencyKey },
         timeout: 60000,
@@ -297,7 +305,10 @@ export default function PurchaseForm({
     } catch (err) {
       toast(getOfflineAwareErrorMessage(err, 'Failed to create order.'), 'error');
     } finally {
-      if (!checkoutInProgress) setSubmitting(false);
+      if (!checkoutInProgress) {
+        submitLock.current = false;
+        setSubmitting(false);
+      }
     }
   };
 
@@ -326,6 +337,7 @@ export default function PurchaseForm({
       <input
         className={fieldClass(errors.phone, brand.inputFocus)}
         value={phone}
+        disabled={submitting}
         onChange={(e) => {
           setPhone(restrictPhoneInput(e.target.value));
           clearError('phone');

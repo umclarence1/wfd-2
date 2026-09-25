@@ -6,9 +6,10 @@ const REQUIRED_IN_PRODUCTION = [
   'JWT_REFRESH_SECRET',
   'ENCRYPTION_KEY',
   'PAYSTACK_SECRET_KEY',
+  'CRON_SECRET',
 ];
 
-const RECOMMENDED_IN_PRODUCTION = ['CRON_SECRET', 'ADMIN_OTP_EMAIL'];
+const RECOMMENDED_IN_PRODUCTION = ['ADMIN_OTP_EMAIL'];
 
 export const validateProductionEnv = () => {
   if (env.nodeEnv !== 'production') return;

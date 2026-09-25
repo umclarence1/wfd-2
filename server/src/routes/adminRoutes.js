@@ -14,11 +14,11 @@ import { protect, adminOnly, noCache, requirePermission } from '../middleware/au
 import { logAudit } from '../middleware/audit.js';
 import { adminLimiter } from '../middleware/rateLimit.js';
 import { validateBody } from '../middleware/validate.js';
-import { promoBulkSchema, orderStatusUpdateSchema, orderBulkStatusUpdateSchema } from '../schemas/zodSchemas.js';
+import { promoBulkSchema, orderStatusUpdateSchema, orderBulkStatusUpdateSchema, orderMarkAllStatusSchema } from '../schemas/zodSchemas.js';
 import { sliderUpload } from '../middleware/upload.js';
 import { reorderCategoryPackages } from '../utils/packageSort.js';
 import { pauseUpdate, resumeUpdate } from '../utils/packageAvailability.js';
-import { fulfillPaidOrderImmediately } from '../services/immediateFulfillmentService.js';
+import { fulfillOrder } from '../services/orderService.js';
 import { syncOrderProviderStatus, maybeSendVerificationEmail } from '../services/orderProviderStatusService.js';
 import { purgeAllOrders } from '../services/orderPurgeService.js';
 import {
@@ -30,7 +30,7 @@ import {
   getQueuedOrders,
 } from '../services/apiProviderService.js';
 import { retryQueuedProviderOrders } from '../services/orderRetryService.js';
-import { markManualFulfillment } from '../utils/fulfillmentLock.js';
+import { hasConfirmedProviderSubmission, markAcceptedProviderOrdersDelivered, markManualFulfillment } from '../utils/fulfillmentLock.js';
 import { publishOrderUpdate, testOrderStatusWebhook } from '../services/orderWebhookService.js';
 import { escapeRegex } from '../utils/escapeRegex.js';
 import { isSafeHttpUrl } from '../utils/providerUrl.js';
@@ -230,6 +230,8 @@ router.get('/orders', requirePermission('orders'), asyncHandler(async (req, res)
     filter.category = category;
   }
 
+  await markAcceptedProviderOrdersDelivered();
+
   const orders = await Order.find(filter)
     .sort({ createdAt: -1 })
     .skip((page - 1) * limit)
@@ -260,6 +262,73 @@ router.delete('/orders/purge-all', requirePermission('orders'), asyncHandler(asy
   });
 
   res.json({ success: true, message: 'All orders cleared.', ...result });
+}));
+
+const applyNetworkFilter = (filter, network, category) => {
+  const networkKey = String(network || category || '').toLowerCase();
+  if (networkKey === 'mtn') {
+    filter.category = { $in: ['MTN', 'MTN EXPRESS', 'MTN AFA'] };
+  } else if (networkKey === 'telecel') {
+    filter.category = 'Telecel';
+  } else if (networkKey === 'airteltigo') {
+    filter.category = { $in: ['AirtelTigo', 'AirtelTigo Big Time'] };
+  } else if (category) {
+    filter.category = category;
+  }
+  return filter;
+};
+
+router.patch('/orders/mark-all-status', requirePermission('orders'), validateBody(orderMarkAllStatusSchema), asyncHandler(async (req, res) => {
+  const { fromStatus, deliveryStatus, network, search } = req.body;
+  const filter = { ...PAID_ORDER_FILTER, deliveryStatus: fromStatus };
+  if (search) {
+    const safe = escapeRegex(String(search).slice(0, 100));
+    filter.$or = [
+      { reference: { $regex: safe, $options: 'i' } },
+      { paymentReference: { $regex: safe, $options: 'i' } },
+      { email: { $regex: safe, $options: 'i' } },
+      { phone: { $regex: safe, $options: 'i' } },
+      { packageName: { $regex: safe, $options: 'i' } },
+    ];
+  }
+  applyNetworkFilter(filter, network);
+
+  const now = new Date().toISOString();
+  const set = { deliveryStatus };
+  if (deliveryStatus === 'delivered') {
+    set['metadata.manuallyFulfilled'] = true;
+    set['metadata.manuallyFulfilledAt'] = now;
+    set['metadata.providerSubmissionLocked'] = true;
+    set['metadata.deliveredAt'] = now;
+    set['metadata.queuedForProvider'] = false;
+    set['metadata.pendingProviderRetry'] = false;
+    set['metadata.requiresReconciliation'] = false;
+    set['metadata.fulfillmentInProgress'] = false;
+    set.failureReason = undefined;
+  }
+
+  const result = await Order.updateMany(filter, { $set: set });
+
+  await logAudit({
+    user: req.user,
+    action: 'UPDATE',
+    resource: 'Order',
+    details: {
+      markAll: true,
+      fromStatus,
+      deliveryStatus,
+      network: network || null,
+      modifiedCount: result.modifiedCount,
+      matchedCount: result.matchedCount,
+    },
+    req,
+  });
+
+  res.json({
+    success: true,
+    modifiedCount: result.modifiedCount,
+    matchedCount: result.matchedCount,
+  });
 }));
 
 router.patch('/orders/bulk-status', requirePermission('orders'), validateBody(orderBulkStatusUpdateSchema), asyncHandler(async (req, res) => {
@@ -354,19 +423,35 @@ router.patch('/orders/:id/status', requirePermission('orders'), validateBody(ord
 router.post('/orders/:id/resubmit', requirePermission('orders'), asyncHandler(async (req, res) => {
   const order = await Order.findById(req.params.id);
   if (!order) throw new AppError('Order not found.', 404);
+  if (hasConfirmedProviderSubmission(order)) {
+    throw new AppError(
+      'Order already has a TopDeals submission — use Sync API status instead of resubmit.',
+      409
+    );
+  }
   order.retryCount += 1;
   order.deliveryStatus = 'processing';
-  order.providerReference = undefined;
+  if (!order.metadata?.topdealsOrderId) {
+    order.providerReference = undefined;
+  }
   order.metadata = {
     ...(order.metadata || {}),
     queuedForProvider: false,
-    queueReason: undefined,
     submittedToProvider: false,
     fulfillmentAbandoned: false,
     manuallyFulfilled: false,
+    providerSubmissionLocked: false,
+    requiresReconciliation: false,
+    automaticRetryDisabled: false,
+    duplicateSendBlocked: false,
+    pendingProviderRetry: false,
   };
+  delete order.metadata.queueReason;
+  delete order.metadata.providerPurchaseAttemptedAt;
+  delete order.metadata.purchaseGuardKey;
+  order.markModified('metadata');
   await order.save();
-  await fulfillPaidOrderImmediately(order._id, req.app.get('io'));
+  await fulfillOrder(order._id, req.app.get('io'), { adminResubmit: true });
   res.json({ success: true, message: 'Order resubmitted.' });
 }));
 
@@ -401,7 +486,24 @@ router.post('/promos/bulk', requirePermission('promos'), validateBody(promoBulkS
 }));
 
 router.post('/promos', requirePermission('promos'), asyncHandler(async (req, res) => {
-  const body = { ...req.body };
+  const allowed = [
+    'code',
+    'description',
+    'discountType',
+    'discountValue',
+    'productCategories',
+    'productIds',
+    'expiryDate',
+    'usageLimit',
+    'isActive',
+    'onePerEmail',
+    'onePerPhone',
+    'onePerAccount',
+  ];
+  const body = {};
+  for (const key of allowed) {
+    if (req.body[key] !== undefined) body[key] = req.body[key];
+  }
   if (body.code) {
     body.code = String(body.code).trim().toUpperCase();
   } else {

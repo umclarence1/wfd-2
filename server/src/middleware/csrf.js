@@ -1,5 +1,4 @@
 import crypto from 'crypto';
-import jwt from 'jsonwebtoken';
 import { env } from '../config/env.js';
 
 const timingSafeEqualStr = (a, b) => {
@@ -27,17 +26,6 @@ const requestOrigin = (req) => {
   }
 };
 
-const hasValidAccessSession = (req) => {
-  const token = req.cookies?.accessToken || req.headers.authorization?.replace('Bearer ', '');
-  if (!token) return false;
-  try {
-    jwt.verify(token, env.jwt.accessSecret, { algorithms: ['HS256'] });
-    return true;
-  } catch {
-    return false;
-  }
-};
-
 export const generateCsrfToken = (req, res) => {
   const token = crypto.randomBytes(32).toString('hex');
   // Same-origin via Vercel rewrite — Lax is more reliable than None for cookie storage.
@@ -52,9 +40,9 @@ export const generateCsrfToken = (req, res) => {
 };
 
 /**
- * Double-submit CSRF: cookie must match X-CSRF-Token.
- * Fallback for split cookie issues: valid admin session + header token,
- * only when Origin/Referer is an allowlisted front-end.
+ * Double-submit CSRF: the cookie must match X-CSRF-Token.
+ * A logged-in session alone is not enough — that let any 64-character
+ * header bypass the cookie check.
  */
 export const csrfProtection = (req, res, next) => {
   if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
@@ -62,22 +50,14 @@ export const csrfProtection = (req, res, next) => {
   const cookieToken = req.cookies['csrf-token'];
   const headerToken = req.headers['x-csrf-token'];
   const origin = requestOrigin(req);
-  const originOk = !origin || allowedOrigins().includes(origin);
+  const localhostDev = env.nodeEnv !== 'production' && /^http:\/\/localhost:\d+$/.test(origin);
+  const originOk = Boolean(origin) && (allowedOrigins().includes(origin) || localhostDev);
 
   if (!originOk) {
     return res.status(403).json({ success: false, message: 'Invalid CSRF origin.' });
   }
 
   if (cookieToken && headerToken && timingSafeEqualStr(cookieToken, headerToken)) {
-    return next();
-  }
-
-  if (
-    hasValidAccessSession(req) &&
-    headerToken &&
-    /^[a-f0-9]{64}$/i.test(String(headerToken)) &&
-    originOk
-  ) {
     return next();
   }
 

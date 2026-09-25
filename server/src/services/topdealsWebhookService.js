@@ -75,13 +75,20 @@ export const applyTopDealsWebhook = async (rawPayload, io) => {
 
   const mappedDelivery = resolveDeliveryStatusFromProvider(order, deliveryStatus);
 
-  if (mappedDelivery && mappedDelivery !== order.deliveryStatus) {
+  if (
+    order.deliveryStatus === 'delivered'
+    || order.metadata?.providerSubmissionLocked
+    || order.metadata?.manuallyFulfilled
+  ) {
+    // Once accepted by the API (or marked delivered), do not reopen for another purchase.
+  } else if (mappedDelivery && mappedDelivery !== order.deliveryStatus) {
     let nextStatus = mappedDelivery;
     if (order.paymentStatus === 'paid' && ['failed', 'cancelled', 'refunded'].includes(deliveryStatus)) {
       nextStatus = 'processing';
       order.metadata = {
         ...(order.metadata || {}),
-        queuedForProvider: true,
+        queuedForProvider: false,
+        pendingProviderRetry: false,
         queueReason: 'provider_reported_failure',
         lastProviderError: payload.message || `Provider reported ${deliveryStatus}.`,
       };

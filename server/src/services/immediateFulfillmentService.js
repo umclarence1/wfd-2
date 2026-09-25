@@ -5,22 +5,23 @@ import { QUEUE_REASONS } from '../utils/providerQueue.js';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** Reasons we cannot succeed by retrying in the same request (wallet / config). */
+/** Wallet/config only — other failures retry via cron without a "queued" flag. */
 const NON_RETRYABLE_QUEUE_REASONS = new Set([
   QUEUE_REASONS.INSUFFICIENT_BALANCE,
   QUEUE_REASONS.FORWARDING_OFF,
   QUEUE_REASONS.NETWORK_OFF,
-  'package_unmatched',
-  'package_unavailable',
 ]);
 
 /**
  * Submit to TopDealsGH in-process right after payment — no background queue wait.
  */
-/** One provider submit per payment event — background cron retries queued orders later. */
+/** One automatic TopDeals call per paid order. Admin Resubmit is the only second send. */
 export const fulfillPaidOrderImmediately = async (orderId, io, { maxAttempts = 1 } = {}) => {
   let lastOrder = await Order.findById(orderId);
   if (!lastOrder || isOrderSubmittedToProvider(lastOrder)) {
+    return lastOrder;
+  }
+  if (lastOrder.metadata?.providerPurchaseAttemptedAt) {
     return lastOrder;
   }
 

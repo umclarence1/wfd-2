@@ -52,5 +52,13 @@ orderSchema.index({ email: 1, createdAt: -1 });
 orderSchema.index({ phone: 1 });
 orderSchema.index({ deliveryStatus: 1 });
 orderSchema.index({ paymentStatus: 1 });
+orderSchema.index({
+  paymentStatus: 1,
+  deliveryStatus: 1,
+  'metadata.queuedForProvider': 1,
+  'metadata.submittedToProvider': 1,
+});
+orderSchema.index({ 'metadata.topdealsOrderId': 1 }, { sparse: true });
+orderSchema.index({ 'metadata.purchaseGuardKey': 1 }, { unique: true, sparse: true });
 
 export default mongoose.model('Order', orderSchema);

@@ -19,9 +19,12 @@ const pendingPaymentSchema = new mongoose.Schema(
     promoCode: { type: String, default: null },
     promoDiscount: { type: Number, default: 0 },
     expiresAt: { type: Date, required: true },
+    checkoutGuardKey: { type: String },
   },
   { timestamps: true }
 );
+
+pendingPaymentSchema.index({ checkoutGuardKey: 1 }, { unique: true, sparse: true });
 
 pendingPaymentSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 

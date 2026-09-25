@@ -9,10 +9,10 @@ import { publishOrderUpdate } from './orderWebhookService.js';
 import { isRealProviderReference } from '../utils/providerReference.js';
 import {
   isOrderSubmittedToProvider,
+  repairStaleProviderSubmission,
   resolveDeliveryStatusFromProvider,
   shouldSkipAutoFulfillment,
 } from '../utils/fulfillmentLock.js';
-import { fulfillOrder } from './orderService.js';
 import { isMtnDataCategory } from '../utils/validation.js';
 
 const API_SERVICE_TYPES = new Set(['data_bundle', 'afa_registration']);
@@ -98,32 +98,8 @@ export const syncOrderProviderStatus = async (orderId, io) => {
     };
   }
 
-  if (order.metadata?.queuedForProvider && !isOrderSubmittedToProvider(order)) {
-    return buildQueuedPayload(order);
-  }
-
-  if (order.paymentStatus === 'paid' && !isOrderSubmittedToProvider(order)) {
-    try {
-      await fulfillOrder(order._id, io);
-    } catch (err) {
-      console.error('[PROVIDER_SYNC] Auto-submit failed:', order.reference, err.message);
-      return buildQueuedPayload(order, {
-        providerStatus: 'submit_failed',
-        message: err.message || 'Could not submit order to TopDealsGH.',
-      });
-    }
-
-    const refreshed = await Order.findById(orderId);
-    if (!isOrderSubmittedToProvider(refreshed)) {
-      return buildQueuedPayload(refreshed || order, {
-        providerStatus: 'queued',
-        message:
-          refreshed?.failureReason
-          || refreshed?.metadata?.lastFulfillmentError
-          || 'Payment received — submitting to TopDealsGH. Refresh in a moment.',
-      });
-    }
-    order = refreshed;
+  if (repairStaleProviderSubmission(order)) {
+    await order.save();
   }
 
   const providerId = order.providerId || (await resolveProviderForCategory(order.category));
@@ -136,17 +112,24 @@ export const syncOrderProviderStatus = async (orderId, io) => {
   const previousDelivery = order.deliveryStatus;
   const previousPayment = order.paymentStatus;
 
-  if (mappedDelivery && mappedDelivery !== order.deliveryStatus) {
+  if (
+    order.deliveryStatus === 'delivered'
+    || order.metadata?.providerSubmissionLocked
+    || order.metadata?.manuallyFulfilled
+  ) {
+    // Submitted orders stay delivered so sync cannot reopen them for another API send.
+  } else if (mappedDelivery && mappedDelivery !== order.deliveryStatus) {
     let nextStatus = mappedDelivery;
 
     if (order.paymentStatus === 'paid' && nextStatus === 'failed') {
       nextStatus = 'processing';
       order.metadata = {
         ...(order.metadata || {}),
-        queuedForProvider: true,
+        queuedForProvider: false,
+        pendingProviderRetry: false,
         queueReason: 'provider_reported_failure',
       };
-      order.failureReason = 'Payment received — your order is being processed.';
+      order.failureReason = 'TopDeals reported a failure. This order was not sent again. Use admin Resubmit if it is missing on TopDeals.';
     } else if (order.paymentStatus === 'paid' && nextStatus === 'pending') {
       nextStatus = 'processing';
     } else if (order.deliveryStatus === 'verification' && nextStatus === 'processing') {

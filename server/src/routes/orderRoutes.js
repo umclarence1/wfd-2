@@ -185,7 +185,12 @@ router.get(
       io: req.app.get('io'),
     });
 
-    const updated = await Order.findById(result.order._id)
+    const paidOrder = result.order || (await Order.findOne({ paymentReference: paymentRef }));
+    if (!paidOrder) {
+      throw new AppError('Payment is being confirmed. Refresh this page in a moment.', 409);
+    }
+
+    const updated = await Order.findById(paidOrder._id)
       .populate('checker', 'serialNumber pin checkerType')
       .populate('checkers', 'serialNumber pin checkerType')
       .populate('package', 'dataAmount');

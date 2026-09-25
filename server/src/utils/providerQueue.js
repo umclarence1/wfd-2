@@ -4,6 +4,12 @@ export const QUEUE_REASONS = {
   NETWORK_OFF: 'network_off',
 };
 
+/** Only these reasons use admin "queued" (wallet/config — retry when funded). */
+export const isWalletOrConfigQueueReason = (reason) =>
+  reason === QUEUE_REASONS.INSUFFICIENT_BALANCE
+  || reason === QUEUE_REASONS.FORWARDING_OFF
+  || reason === QUEUE_REASONS.NETWORK_OFF;
+
 export const isInsufficientBalanceMessage = (message) => {
   const text = String(message || '').toLowerCase();
   return (

@@ -91,9 +91,17 @@ export const orderStatusUpdateSchema = z
     message: 'A status value is required.',
   });
 
+export const orderMarkAllStatusSchema = z.object({
+  fromStatus: z.enum(['pending', 'processing', 'verification', 'failed']),
+  deliveryStatus: orderStatusEnum,
+  network: z.string().max(40).optional(),
+  search: z.string().max(100).optional(),
+  confirm: z.literal(true),
+});
+
 export const orderBulkStatusUpdateSchema = z
   .object({
-    orderIds: z.array(z.string().min(1)).min(1).max(100),
+    orderIds: z.array(z.string().min(1)).min(1).max(500),
     deliveryStatus: orderStatusEnum.optional(),
     paymentStatus: paymentStatusEnum.optional(),
   })

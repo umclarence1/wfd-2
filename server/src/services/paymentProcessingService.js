@@ -8,7 +8,9 @@ import {
 } from './pendingPaymentService.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { logSecurityEvent } from './securityLogger.js';
+import { FULFILLMENT_EVENTS, logFulfillmentEvent } from './fulfillmentAudit.js';
 import { publishOrderUpdate } from './orderWebhookService.js';
+import ProcessedWebhook from '../models/ProcessedWebhook.js';
 const AMOUNT_TOLERANCE = 0.02;
 
 const validatePaidAmount = (amountPaid, expectedTotal, paymentReference) => {
@@ -36,8 +38,28 @@ export const markOrderPaidFromPaystack = async ({
   let order = await Order.findOne({ paymentReference });
   let createdFromPending = false;
 
+  try {
+    await ProcessedWebhook.create({
+      reference: paymentReference,
+      event: 'charge.success',
+      status: 'processing',
+    });
+  } catch (err) {
+    if (err.code === 11000) {
+      const existing = order || (await Order.findOne({ paymentReference }));
+      logFulfillmentEvent(existing?.reference, FULFILLMENT_EVENTS.DUPLICATE_PAYMENT_IGNORED, {
+        paymentReference,
+      });
+      return { order: existing, duplicate: true };
+    }
+    throw err;
+  }
+
   if (order?.paymentStatus === 'paid') {
     logSecurityEvent('duplicate_payment_webhook', { paymentReference });
+    logFulfillmentEvent(order.reference, FULFILLMENT_EVENTS.DUPLICATE_PAYMENT_IGNORED, {
+      paymentReference,
+    });
     return { order, duplicate: true };
   }
 

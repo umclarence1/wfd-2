@@ -3,7 +3,6 @@ import { validateProductionEnv } from '../src/config/validateEnv.js';
 import { createApp } from '../src/app.js';
 import { autoSeedIfEmpty } from '../src/scripts/autoSeed.js';
 import { migrateSiteSettingsOnBoot } from '../src/services/siteSettingsService.js';
-import { retryQueuedProviderOrders } from '../src/services/orderRetryService.js';
 import { syncOpenProviderOrders } from '../src/services/orderProviderStatusService.js';
 import { notifyStaleMtnPendingOrders } from '../src/services/mtnPendingNoticeService.js';
 import { syncCheckerPackageAvailability } from '../src/services/checkerService.js';
@@ -16,9 +15,6 @@ const maybeRunBackgroundJobs = () => {
   const now = Date.now();
   if (now - lastBackgroundJob < BACKGROUND_JOB_MS) return;
   lastBackgroundJob = now;
-  retryQueuedProviderOrders(null).catch((err) => {
-    console.error('[ORDER_RETRY] Background retry failed:', err.message);
-  });
   syncOpenProviderOrders(null).catch((err) => {
     console.error('[PROVIDER_SYNC] Background sync failed:', err.message);
   });

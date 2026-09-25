@@ -1,5 +1,4 @@
 import Order from '../models/Order.js';
-import { fulfillOrder } from './orderService.js';
 import { getSiteSettings, setSiteSettingsFields } from './siteSettingsService.js';
 
 export const ORDER_FULFILLMENT_REPAIR_VERSION = 3;
@@ -124,24 +123,10 @@ export const runOrderFulfillmentRepair = async (io = null, { submit = true } = {
     }
   }
 
-  if (submit) {
-    for (const order of toSubmit) {
-      try {
-        const updated = await fulfillOrder(order._id, io);
-        const ok = updated?.metadata?.submittedToProvider || providerAcceptedOrder(updated);
-        if (ok) {
-          summary.submitted += 1;
-          summary.references.submitted.push(order.reference);
-        } else {
-          summary.references.failed.push(order.reference);
-        }
-      } catch {
-        summary.submitErrors += 1;
-        summary.references.failed.push(order.reference);
-      }
-      await new Promise((r) => setTimeout(r, 350));
-    }
-  }
+  // Do not purchase here. A second automatic POST is what created duplicate TopDeals orders.
+  void submit;
+  void io;
+  void toSubmit;
 
   summary.stillNeverSubmitted = await Order.countDocuments({
     paymentStatus: 'paid',

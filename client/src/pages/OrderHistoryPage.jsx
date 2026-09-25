@@ -6,16 +6,6 @@ import { useToast } from '../context/ToastContext';
 import { getPaymentReferencesFromCookie } from '../utils/orderHistoryCookie';
 import { Loader2 } from 'lucide-react';
 
-const statusColors = {
-  pending: 'bg-amber-100 text-amber-800',
-  processing: 'bg-blue-100 text-blue-800',
-  verification: 'bg-violet-100 text-violet-800',
-  delivered: 'bg-green-100 text-green-800',
-  failed: 'bg-red-100 text-red-800',
-  refunded: 'bg-gray-100 text-gray-800',
-  cancelled: 'bg-slate-200 text-slate-700',
-};
-
 const formatNetwork = (category) => {
   if (!category) return '—';
   return String(category).replace(/\s+AFA$/i, '').trim() || category;
@@ -113,7 +103,6 @@ export default function OrderHistoryPage() {
                 <th className="px-4 py-3">Date</th>
                 <th className="px-4 py-3">Time</th>
                 <th className="px-4 py-3">Network</th>
-                <th className="px-4 py-3">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -131,13 +120,6 @@ export default function OrderHistoryPage() {
                     {order.createdAt ? formatTimePart(order.createdAt) : '—'}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-gray-800">{formatNetwork(order.category)}</td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${statusColors[order.deliveryStatus] || statusColors.pending}`}
-                    >
-                      {order.deliveryStatus || 'pending'}
-                    </span>
-                  </td>
                 </tr>
               ))}
             </tbody>

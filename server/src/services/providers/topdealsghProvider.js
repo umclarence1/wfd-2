@@ -41,6 +41,11 @@ const extractErrorMessage = (err, fallback) =>
   err.message ||
   fallback;
 
+export const isTopDealsRequestUncertain = (err) =>
+  err?.code === 'ECONNABORTED'
+  || err?.code === 'ETIMEDOUT'
+  || /timeout/i.test(String(err?.message || ''));
+
 const request = async (creds, { method, path, data, params, timeout = 30000 }) => {
   const response = await axios({
     method,
@@ -302,6 +307,18 @@ export const submitTopDealsGhDataBundle = async (creds, order, pkg) => {
     };
   } catch (err) {
     const message = extractErrorMessage(err, 'TopDealsGH purchase failed.');
+    if (isTopDealsRequestUncertain(err)) {
+      const partialId = err.response?.data?.data?.orderId;
+      return {
+        success: false,
+        uncertain: true,
+        reference: order.reference,
+        orderId: partialId ? String(partialId) : undefined,
+        message: 'TopDeals request timed out — reconcile before resubmitting.',
+        providerId: 'topdealsgh',
+        raw: err.response?.data,
+      };
+    }
     if (isInsufficientBalanceMessage(message) || /insufficient/i.test(message)) {
       return asQueuedProviderResponse(
         { reference: order.reference, message, raw: err.response?.data },
@@ -309,11 +326,24 @@ export const submitTopDealsGhDataBundle = async (creds, order, pkg) => {
       );
     }
     if (isDuplicatePurchaseMessage(message)) {
+      const data = err.response?.data?.data || {};
       return {
         success: true,
-        reference: order.reference,
+        reference: data.orderId || order.reference,
+        orderId: data.orderId,
         message,
         alreadySubmitted: true,
+        providerId: 'topdealsgh',
+        raw: err.response?.data,
+      };
+    }
+    if (err.response?.status >= 500) {
+      return {
+        success: false,
+        uncertain: true,
+        reference: order.reference,
+        orderId: err.response?.data?.data?.orderId,
+        message: message || 'TopDeals server error — reconcile before resubmitting.',
         providerId: 'topdealsgh',
         raw: err.response?.data,
       };

@@ -9,7 +9,7 @@ import { PROVIDER_IDS, isTopDealsGhNetwork, migrateProviderId } from '../config/
 import { QUEUE_REASONS } from '../utils/providerQueue.js';
 import { getTopDealsGhOrderStatus } from './providers/topdealsghProvider.js';
 import { getSmartDataHubDeliveryStatus } from './providers/smartDataHubProvider.js';
-import { isRealProviderReference } from '../utils/providerReference.js';
+import { isRealProviderReference, isTopDealsOrderId } from '../utils/providerReference.js';
 
 const queueForwardingOff = (order, message) => ({
   success: true,
@@ -79,7 +79,20 @@ export const checkProviderStatus = async (providerReference, category, providerI
 
     try {
       const result = await getTopDealsGhOrderStatus(creds, providerReference);
-      if (result?.success !== true) return { status: 'unknown', raw: result };
+      if (result?.success !== true) {
+        const embedded = String(result?.data?.status || '').toLowerCase();
+        if (['completed', 'delivered', 'success'].includes(embedded)) return { status: 'delivered', raw: result };
+        if (['failed', 'cancelled', 'canceled', 'refunded'].includes(embedded)) {
+          return { status: 'failed', raw: result };
+        }
+        if (isTopDealsOrderId(providerReference)) {
+          return {
+            status: 'processing',
+            raw: { ...(result && typeof result === 'object' ? result : {}), message: 'Already submitted to TopDeals.' },
+          };
+        }
+        return { status: 'unknown', raw: result };
+      }
 
       const status = String(result.data?.status || result.status || '').toLowerCase();
       if (['completed', 'delivered', 'success'].includes(status)) return { status: 'delivered', raw: result };
@@ -96,6 +109,12 @@ export const checkProviderStatus = async (providerReference, category, providerI
       }
       return { status: 'processing', raw: result };
     } catch {
+      if (isTopDealsOrderId(providerReference)) {
+        return {
+          status: 'processing',
+          raw: { message: 'Already submitted to TopDeals.' },
+        };
+      }
       return { status: 'unknown' };
     }
   }

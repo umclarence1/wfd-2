@@ -6,16 +6,12 @@ export const MAX_NEVER_SUBMITTED_RETRIES = 15;
 
 export const MANUAL_DELIVERY_SERVICE_TYPES = new Set(['data_bundle', 'afa_registration']);
 
-/** Data bundles stay processing after API submit — admin marks delivered manually. */
-export const resolveDeliveryStatusFromProvider = (order, providerStatus) => {
+/** Once TopDeals has the order, admin shows delivered — even while TopDeals is still sending the bundle. */
+export const resolveDeliveryStatusFromProvider = (_order, providerStatus) => {
   if (!providerStatus) return null;
-  if (MANUAL_DELIVERY_SERVICE_TYPES.has(order.serviceType) && providerStatus === 'delivered') {
-    return 'processing';
-  }
-  if (providerStatus === 'delivered') return 'delivered';
   if (providerStatus === 'failed') return 'failed';
   if (providerStatus === 'verification') return 'verification';
-  if (providerStatus === 'processing') return 'processing';
+  if (providerStatus === 'delivered' || providerStatus === 'processing') return 'delivered';
   return null;
 };
 
@@ -24,7 +20,8 @@ export const shouldSkipAutoFulfillment = (order) =>
   !order
   || order.paymentStatus !== 'paid'
   || order.deliveryStatus === 'delivered'
-  || order.metadata?.manuallyFulfilled === true;
+  || order.metadata?.manuallyFulfilled === true
+  || order.metadata?.providerSubmissionLocked === true;
 
 /** Order already accepted by a provider — do not submit again (duplicate prevention). */
 export const shouldNeverResubmitToProvider = (order) => {
@@ -33,23 +30,93 @@ export const shouldNeverResubmitToProvider = (order) => {
   return isOrderSubmittedToProvider(order);
 };
 
-/** Order already accepted by TopDealsGH / provider — do not purchase again. */
-export const isOrderSubmittedToProvider = (order) => {
+/** TopDeals (or other provider) returned a trackable id — not our local ORD-/PAY- reference. */
+export const hasConfirmedProviderSubmission = (order) => {
   if (!order) return false;
-  if (order.metadata?.submittedToProvider === true) return true;
-  if (order.providerResponse?.alreadySubmitted === true) return true;
-  if (order.providerResponse?.success === true && order.metadata?.fulfilledAt) return true;
-  if (order.providerResponse?.orderId) return true;
+  const rawId = order.providerResponse?.raw?.data?.orderId || order.providerResponse?.raw?.orderId;
+  if (order.providerResponse?.orderId || rawId || order.metadata?.topdealsOrderId) return true;
+  if (order.providerResponse?.success === true || order.providerResponse?.alreadySubmitted === true) return true;
   if (isRealProviderReference(order.providerReference, order.reference)) return true;
   return false;
 };
 
+/** Paid orders TopDeals already accepted should not stay on Processing. */
+export const markAcceptedProviderOrdersDelivered = () =>
+  Order.updateMany(
+    {
+      paymentStatus: 'paid',
+      deliveryStatus: { $in: ['pending', 'processing', 'verification'] },
+      $or: [
+        { 'providerResponse.success': true },
+        { 'providerResponse.alreadySubmitted': true },
+        { 'providerResponse.orderId': { $exists: true, $nin: [null, ''] } },
+        { 'metadata.topdealsOrderId': { $exists: true, $nin: [null, ''] } },
+        { 'metadata.submittedToProvider': true, 'metadata.fulfilledAt': { $exists: true, $nin: [null, ''] } },
+        { providerReference: { $regex: '^ORD-\\d{10,}-\\d+$' } },
+        { providerReference: { $regex: '^ORD\\d{8}[A-Z0-9]+$', $options: 'i' } },
+      ],
+    },
+    {
+      $set: {
+        deliveryStatus: 'delivered',
+        'metadata.manuallyFulfilled': true,
+        'metadata.providerSubmissionLocked': true,
+        'metadata.queuedForProvider': false,
+        'metadata.pendingProviderRetry': false,
+      },
+    }
+  );
+
+/** Order already accepted by TopDealsGH / provider — do not purchase again. */
+export const isOrderSubmittedToProvider = (order) => {
+  if (!order) return false;
+  if (hasConfirmedProviderSubmission(order)) return true;
+  if (order.providerResponse?.alreadySubmitted === true && hasConfirmedProviderSubmission(order)) {
+    return true;
+  }
+  // Legacy rows: submittedToProvider without a real provider id blocked retries and showed "not submitted".
+  if (order.metadata?.submittedToProvider === true) {
+    return hasConfirmedProviderSubmission(order);
+  }
+  return false;
+};
+
+/** Clear mistaken "submitted" when only a local ORD-* value was stored as providerReference. */
+export const repairStaleProviderSubmission = (order) => {
+  if (
+    !order
+    || order.deliveryStatus === 'delivered'
+    || order.metadata?.manuallyFulfilled === true
+    || order.metadata?.providerSubmissionLocked === true
+  ) {
+    return false;
+  }
+  if (!order?.metadata?.submittedToProvider) return false;
+  if (hasConfirmedProviderSubmission(order)) return false;
+
+  order.metadata = {
+    ...(order.metadata || {}),
+    submittedToProvider: false,
+    pendingProviderRetry: true,
+    queuedForProvider: false,
+  };
+  if (order.providerReference && !isRealProviderReference(order.providerReference, order.reference)) {
+    order.providerReference = undefined;
+  }
+  return true;
+};
+
 export const PROVIDER_PURCHASE_COOLDOWN_MS = 90 * 1000;
+/** After timeout/unknown provider response — wait before another POST /purchase. */
+export const UNCERTAIN_SUBMISSION_COOLDOWN_MS = 5 * 60 * 1000;
 
 export const isWithinProviderPurchaseCooldown = (order) => {
   const at = order?.metadata?.providerPurchaseAttemptedAt;
   if (!at) return false;
-  return Date.now() - new Date(at).getTime() < PROVIDER_PURCHASE_COOLDOWN_MS;
+  const windowMs = order?.metadata?.requiresReconciliation
+    ? UNCERTAIN_SUBMISSION_COOLDOWN_MS
+    : PROVIDER_PURCHASE_COOLDOWN_MS;
+  return Date.now() - new Date(at).getTime() < windowMs;
 };
 
 export const hasExhaustedSubmitRetries = (order) =>
@@ -106,7 +173,11 @@ export const claimFulfillment = async (orderId) => {
       deliveryStatus: { $ne: 'delivered' },
       'metadata.fulfillmentInProgress': { $ne: true },
       'metadata.manuallyFulfilled': { $ne: true },
-      'metadata.submittedToProvider': { $ne: true },
+      $or: [
+        { 'metadata.topdealsOrderId': { $exists: false } },
+        { 'metadata.topdealsOrderId': null },
+        { 'metadata.topdealsOrderId': '' },
+      ],
     },
     {
       $set: {
@@ -137,19 +208,44 @@ export const releaseFulfillmentLock = async (orderId) => {
 };
 
 export const markOrderSubmittedToProvider = (order, providerReference, providerId) => {
-  if (providerReference) {
-    order.providerReference = String(providerReference);
+  const ref = providerReference ? String(providerReference).trim() : '';
+  const trackable =
+    order.providerResponse?.orderId
+    || (ref && isRealProviderReference(ref, order.reference) ? ref : null);
+
+  if (trackable) {
+    order.providerReference = String(trackable);
+  } else if (ref && isRealProviderReference(ref, order.reference)) {
+    order.providerReference = ref;
   }
+
   if (providerId) {
     order.providerId = providerId;
   }
+
+  if (!trackable && !isRealProviderReference(order.providerReference, order.reference)) {
+    order.metadata = {
+      ...(order.metadata || {}),
+      submittedToProvider: false,
+      pendingProviderRetry: true,
+    };
+    return;
+  }
+
+  const confirmedId =
+    order.providerResponse?.orderId
+    || (trackable ? String(trackable) : null);
+
   order.metadata = {
     ...(order.metadata || {}),
     submittedToProvider: true,
     submittedToProviderAt: new Date().toISOString(),
     queuedForProvider: false,
     queueReason: undefined,
+    pendingProviderRetry: false,
+    requiresReconciliation: false,
     fulfillmentAbandoned: false,
+    ...(confirmedId ? { topdealsOrderId: String(confirmedId) } : {}),
   };
 };
 
@@ -158,7 +254,10 @@ export const markManualFulfillment = (order) => {
     ...(order.metadata || {}),
     manuallyFulfilled: true,
     manuallyFulfilledAt: new Date().toISOString(),
+    providerSubmissionLocked: true,
     queuedForProvider: false,
+    pendingProviderRetry: false,
+    requiresReconciliation: false,
     fulfillmentInProgress: false,
   };
   order.failureReason = undefined;

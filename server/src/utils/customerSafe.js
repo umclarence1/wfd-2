@@ -34,7 +34,6 @@ export const sanitizeOrderForCustomer = (order, { includeChecker = false, includ
     packagePrice: order.packagePrice,
     totalAmount: order.totalAmount,
     paymentStatus: order.paymentStatus,
-    deliveryStatus: order.deliveryStatus,
     createdAt: order.createdAt,
   };
 

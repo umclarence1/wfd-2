@@ -52,10 +52,14 @@ export const createPendingPayment = async (validated, user, idempotencyKey) => {
     });
     return { kind: 'pending', doc: pending };
   } catch (err) {
-    if (err.code === 11000 && idempotencyKey) {
-      const existingPending = await PendingPayment.findOne({ idempotencyKey });
+    if (err.code === 11000) {
+      const existingPending = idempotencyKey
+        ? await PendingPayment.findOne({ idempotencyKey })
+        : null;
       if (existingPending) return { kind: 'pending', doc: existingPending };
-      const existingOrder = await Order.findOne({ idempotencyKey });
+      const existingOrder = idempotencyKey
+        ? await Order.findOne({ idempotencyKey })
+        : null;
       if (existingOrder) return { kind: 'order', doc: existingOrder };
     }
     throw err;
@@ -88,6 +92,9 @@ export const createOrderFromPendingPayment = async (pending, { paystackTransacti
       paymentStatus: 'paid',
       deliveryStatus: 'processing',
       paystackTransactionId: paystackTransactionId?.toString(),
+      metadata: {
+        fulfillmentIdempotencyKey: reference,
+      },
     });
     await PendingPayment.deleteOne({ _id: pending._id });
     return order;

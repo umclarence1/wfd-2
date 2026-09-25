@@ -119,7 +119,7 @@ export const createApp = (io = noopIo) => {
     const dbStatus = { 0: 'disconnected', 1: 'connected', 2: 'connecting', 3: 'disconnecting' }[dbState] || 'unknown';
     let topdealsConfigured = false;
     let forwardingEnabled = false;
-    if (dbState === 1) {
+    if (env.nodeEnv !== 'production' && dbState === 1) {
       try {
         const creds = await getProviderCredentials(PROVIDER_IDS.TOPDEALSGH);
         topdealsConfigured = Boolean(creds.apiKey && creds.apiSecret);
@@ -132,9 +132,11 @@ export const createApp = (io = noopIo) => {
       success: true,
       message: 'Wilberforce Data Service API is running',
       database: dbStatus,
-      topdealsConfigured,
-      forwardingEnabled,
     };
+    if (env.nodeEnv !== 'production') {
+      payload.topdealsConfigured = topdealsConfigured;
+      payload.forwardingEnabled = forwardingEnabled;
+    }
     if (env.nodeEnv !== 'production') {
       payload.env = process.env.NODE_ENV || 'development';
     }

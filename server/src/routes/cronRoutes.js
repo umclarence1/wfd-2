@@ -28,7 +28,7 @@ router.get(
 router.get(
   '/fix-stuck-orders',
   asyncHandler(async (req, res) => {
-    const summary = await runOrderFulfillmentRepair(req.app.get('io'), { submit: true });
+    const summary = await runOrderFulfillmentRepair(req.app.get('io'), { submit: false });
     res.json({ success: true, ...summary });
   })
 );

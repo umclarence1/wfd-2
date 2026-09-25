@@ -1,108 +1,12 @@
-import { fulfillOrder } from './orderService.js';
-import { findQueuedProviderOrders, findRetryableFailedOrders, findUnsubmittedProviderOrders } from './orderQueueService.js';
-import {
-  isOrderSubmittedToProvider,
-  isWithinProviderPurchaseCooldown,
-  shouldSkipAutoFulfillment,
-} from '../utils/fulfillmentLock.js';
-import { QUEUE_REASONS } from '../utils/providerQueue.js';
-
-export const retryQueuedProviderOrders = async (io, { limit = 25 } = {}) => {
-  const queued = await findQueuedProviderOrders(limit);
-  const unsubmitted = await findUnsubmittedProviderOrders(Math.max(5, Math.floor(limit / 2)));
-  const failed = await findRetryableFailedOrders(Math.max(5, Math.floor(limit / 2)));
-  const seen = new Set();
-  const orders = [];
-
-  for (const order of [...queued, ...unsubmitted, ...failed]) {
-    const id = String(order._id);
-    if (seen.has(id)) continue;
-    seen.add(id);
-    orders.push(order);
-  }
-
-  const results = [];
-
-  for (const order of orders) {
-    try {
-      if (shouldSkipAutoFulfillment(order) || isOrderSubmittedToProvider(order)) {
-        results.push({
-          reference: order.reference,
-          status: order.deliveryStatus,
-          success: true,
-          skipped: true,
-          message: isOrderSubmittedToProvider(order)
-            ? 'Already submitted to provider.'
-            : 'Manual fulfillment — skipped.',
-        });
-        continue;
-      }
-
-      if (
-        order.metadata?.queueReason === QUEUE_REASONS.INSUFFICIENT_BALANCE
-        && isWithinProviderPurchaseCooldown(order)
-      ) {
-        results.push({
-          reference: order.reference,
-          status: order.deliveryStatus,
-          success: true,
-          skipped: true,
-          message: 'Waiting for wallet balance — skip duplicate API purchase.',
-        });
-        continue;
-      }
-
-      if (isWithinProviderPurchaseCooldown(order)) {
-        results.push({
-          reference: order.reference,
-          status: order.deliveryStatus,
-          success: true,
-          skipped: true,
-          message: 'Recent provider attempt — cooldown active.',
-        });
-        continue;
-      }
-
-      if (order.deliveryStatus === 'failed') {
-        order.deliveryStatus = 'processing';
-        order.metadata = {
-          ...(order.metadata || {}),
-          queuedForProvider: true,
-          queueReason: 'retry_after_failure',
-        };
-        await order.save();
-      }
-
-      const updated = await fulfillOrder(order._id, io);
-      const ok =
-        updated?.deliveryStatus === 'delivered'
-        || updated?.deliveryStatus === 'processing'
-        || updated?.deliveryStatus === 'pending'
-        || updated?.deliveryStatus === 'verification';
-      results.push({
-        reference: order.reference,
-        status: updated?.deliveryStatus || 'unknown',
-        queueReason: updated?.metadata?.queueReason,
-        success: ok,
-        stillQueued: updated?.metadata?.queuedForProvider === true,
-      });
-    } catch (err) {
-      results.push({
-        reference: order.reference,
-        status: 'error',
-        success: false,
-        message: err.message,
-      });
-    }
-  }
-
-  const delivered = results.filter((r) => r.success).length;
-  const stillQueued = results.filter((r) => r.stillQueued).length;
-
-  return {
-    retried: results.length,
-    delivered,
-    stillQueued,
-    results,
-  };
-};
+/**
+ * Automatic TopDeals retries are disabled.
+ * One payment sends once. A refused or timed-out call stays put until admin Resubmit.
+ */
+export const retryQueuedProviderOrders = async () => ({
+  retried: 0,
+  delivered: 0,
+  stillQueued: 0,
+  results: [],
+  disabled: true,
+  message: 'Automatic provider retries are off. Use admin Resubmit to send an order again.',
+});

@@ -4,6 +4,7 @@ import Package from '../models/Package.js';
 import { getSiteSettings } from './siteSettingsService.js';
 import { generateReference } from '../utils/reference.js';
 import { validateNetworkPhone } from '../utils/validation.js';
+import { checkoutPhoneBlockedMessage, isCheckoutPhoneBlocked } from '../utils/blockedCheckoutPhones.js';
 import { generateCheckoutEmail } from '../utils/checkoutEmail.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { calculatePaystackCharge, calculateTotal } from '../services/paystackService.js';
@@ -22,12 +23,14 @@ import {
   submitTopDealsGhCheckerPurchase,
 } from './providers/topdealsghProvider.js';
 import Checker from '../models/Checker.js';
-import { QUEUE_REASONS } from '../utils/providerQueue.js';
+import { QUEUE_REASONS, isWalletOrConfigQueueReason } from '../utils/providerQueue.js';
 import {
   claimFulfillmentWithRetry,
+  hasConfirmedProviderSubmission,
   isOrderSubmittedToProvider,
-  isWithinProviderPurchaseCooldown,
+  markManualFulfillment,
   markOrderSubmittedToProvider,
+  repairStaleProviderSubmission,
   releaseFulfillmentLock,
   shouldNeverResubmitToProvider,
 } from '../utils/fulfillmentLock.js';
@@ -40,6 +43,11 @@ import { isCheckoutEmail } from '../utils/checkoutEmail.js';
 import { sendCheckerDeliverySMS } from './smsService.js';
 import { publishOrderUpdate } from './orderWebhookService.js';
 import { fulfillPaidOrderImmediately } from './immediateFulfillmentService.js';
+import {
+  ensureFulfillmentIdempotencyKey,
+  reconcileTopDealsOrderBeforePurchase,
+} from './topdealsReconcileService.js';
+import { appendFulfillmentEvent, FULFILLMENT_EVENTS, logFulfillmentEvent } from './fulfillmentAudit.js';
 
 export const getFreshPackage = async (packageId) => {
   const pkg = await Package.findById(packageId);
@@ -201,8 +209,39 @@ const submitDataBundleWithPackageRetry = async (order, pkg) => {
   return providerResponse;
 };
 
+/** One TopDeals purchase per order. A second send happens only from admin Resubmit. */
+const blockRepeatProviderPurchase = async (order, { adminResubmit = false } = {}) => {
+  if (adminResubmit) return false;
+  if (!order.metadata?.providerPurchaseAttemptedAt) return false;
+  return true;
+};
+
 /** Provider HTTP calls must run outside MongoDB transactions (Atlas aborts long txns). */
-export const fulfillOrder = async (orderId, io) => {
+const markSentOrderDelivered = async (order) => {
+  if (!order || order.deliveryStatus === 'delivered') return order;
+  const sent =
+    hasConfirmedProviderSubmission(order)
+    || isRealProviderReference(order.providerReference, order.reference)
+    || order.providerResponse?.success === true
+    || order.providerResponse?.alreadySubmitted === true;
+  if (!sent) return null;
+  order.deliveryStatus = 'delivered';
+  markManualFulfillment(order);
+  if (!isOrderSubmittedToProvider(order) && order.providerReference) {
+    markOrderSubmittedToProvider(order, order.providerReference, order.providerId);
+  }
+  await order.save();
+  return order;
+};
+
+export const fulfillOrder = async (orderId, io, { adminResubmit = false } = {}) => {
+  const pre = await Order.findById(orderId);
+  const alreadySent = await markSentOrderDelivered(pre);
+  if (alreadySent) return alreadySent;
+  if (pre && repairStaleProviderSubmission(pre)) {
+    await pre.save();
+  }
+
   const claimed = await claimFulfillmentWithRetry(orderId);
   if (!claimed) {
     return Order.findById(orderId);
@@ -211,18 +250,17 @@ export const fulfillOrder = async (orderId, io) => {
   try {
     const order = await Order.findById(orderId);
     if (!order || order.paymentStatus !== 'paid') return order;
-    if (shouldNeverResubmitToProvider(order)) return order;
-
-    if (isRealProviderReference(order.providerReference, order.reference)) {
-      if (!isOrderSubmittedToProvider(order)) {
-        markOrderSubmittedToProvider(order, order.providerReference, order.providerId);
-        await order.save();
-      }
-      return order;
+    if (repairStaleProviderSubmission(order)) {
+      await order.save();
+    }
+    if (shouldNeverResubmitToProvider(order)) {
+      const delivered = await markSentOrderDelivered(order);
+      return delivered || order;
     }
 
-    if (isWithinProviderPurchaseCooldown(order) && !isOrderSubmittedToProvider(order)) {
-      return order;
+    if (isRealProviderReference(order.providerReference, order.reference)) {
+      const delivered = await markSentOrderDelivered(order);
+      return delivered || order;
     }
 
     const previousPaymentStatus = order.paymentStatus;
@@ -232,34 +270,18 @@ export const fulfillOrder = async (orderId, io) => {
     await order.save();
 
     const pkg = await Package.findById(order.package);
-    if (!pkg || !pkg.isActive || pkg.adminPaused) {
+    if (!pkg) {
       order.metadata = {
         ...(order.metadata || {}),
-        queuedForProvider: true,
-        queueReason: 'package_unavailable',
+        queuedForProvider: false,
+        pendingProviderRetry: false,
+        lastFulfillmentError: 'package_missing',
       };
-      order.failureReason = 'Payment received — your order is being processed.';
+      order.failureReason = 'Payment received — package record is missing, so the API was not called.';
       await order.save();
       await publishOrderUpdate(order, {
         io,
-        trigger: 'fulfillment.queued',
-        previousPaymentStatus,
-        previousDeliveryStatus,
-      });
-      return order;
-    }
-
-    if (pkg.serviceType !== 'result_checker' && !pkg.isAvailable) {
-      order.metadata = {
-        ...(order.metadata || {}),
-        queuedForProvider: true,
-        queueReason: 'package_unavailable',
-      };
-      order.failureReason = 'Payment received — your order is being processed.';
-      await order.save();
-      await publishOrderUpdate(order, {
-        io,
-        trigger: 'fulfillment.queued',
+        trigger: 'fulfillment',
         previousPaymentStatus,
         previousDeliveryStatus,
       });
@@ -288,17 +310,23 @@ export const fulfillOrder = async (orderId, io) => {
         });
 
         if (result.queued) {
+          const queueReason = result.queueReason || QUEUE_REASONS.INSUFFICIENT_BALANCE;
+          const walletQueue = isWalletOrConfigQueueReason(queueReason);
           order.metadata = {
             ...(order.metadata || {}),
-            queuedForProvider: true,
-            queueReason: result.queueReason || QUEUE_REASONS.INSUFFICIENT_BALANCE,
-            providerId: PROVIDER_IDS.TOPDEALSGH,
-          };
-          order.failureReason = result.message || 'Queued for TopDealsGH retry.';
+          queuedForProvider: false,
+          queueReason: walletQueue ? queueReason : undefined,
+          pendingProviderRetry: false,
+          automaticRetryDisabled: true,
+          providerId: PROVIDER_IDS.TOPDEALSGH,
+        };
+        order.failureReason = walletQueue
+          ? result.message || 'TopDeals wallet is low. Use admin Resubmit after the wallet is funded.'
+          : result.message || 'TopDeals did not accept the checker order. Use admin Resubmit to send it again.';
           await order.save();
           await publishOrderUpdate(order, {
             io,
-            trigger: 'fulfillment.queued',
+            trigger: walletQueue ? 'fulfillment.queued' : 'fulfillment',
             previousPaymentStatus,
             previousDeliveryStatus,
           });
@@ -354,10 +382,28 @@ export const fulfillOrder = async (orderId, io) => {
       }
       await Promise.allSettled(deliveryTasks);
     } else if (order.serviceType === 'data_bundle') {
+      ensureFulfillmentIdempotencyKey(order);
+      if (await blockRepeatProviderPurchase(order, { adminResubmit })) {
+        return order;
+      }
+
+      const creds = await getProviderCredentials(PROVIDER_IDS.TOPDEALSGH);
+      const reconciled = await reconcileTopDealsOrderBeforePurchase(order, creds);
+      if (reconciled.action === 'reconciled' || reconciled.action === 'already_submitted') {
+        await order.save();
+        return order;
+      }
+
       order.metadata = {
         ...(order.metadata || {}),
         providerPurchaseAttemptedAt: new Date().toISOString(),
       };
+      appendFulfillmentEvent(order, FULFILLMENT_EVENTS.PROVIDER_SUBMIT_START, {
+        provider: PROVIDER_IDS.TOPDEALSGH,
+      });
+      logFulfillmentEvent(order.reference, FULFILLMENT_EVENTS.PROVIDER_SUBMIT_START, {
+        provider: PROVIDER_IDS.TOPDEALSGH,
+      });
       await order.save();
 
       const providerResponse = await submitDataBundleWithPackageRetry(order, pkg);
@@ -369,6 +415,16 @@ export const fulfillOrder = async (orderId, io) => {
         await Promise.allSettled([sendOrderConfirmationEmail(order.email, order)]);
       }
     } else if (order.serviceType === 'afa_registration') {
+      ensureFulfillmentIdempotencyKey(order);
+      if (await blockRepeatProviderPurchase(order, { adminResubmit })) {
+        return order;
+      }
+      const creds = await getProviderCredentials(PROVIDER_IDS.TOPDEALSGH);
+      const reconciled = await reconcileTopDealsOrderBeforePurchase(order, creds);
+      if (reconciled.action === 'reconciled' || reconciled.action === 'already_submitted') {
+        await order.save();
+        return order;
+      }
       order.metadata = {
         ...(order.metadata || {}),
         providerPurchaseAttemptedAt: new Date().toISOString(),
@@ -400,17 +456,20 @@ export const fulfillOrder = async (orderId, io) => {
       order.deliveryStatus = 'processing';
       order.metadata = {
         ...(order.metadata || {}),
-        queuedForProvider: true,
-        queueReason: 'fulfillment_error',
+        queuedForProvider: false,
+        pendingProviderRetry: false,
+        automaticRetryDisabled: Boolean(order.metadata?.providerPurchaseAttemptedAt),
         lastFulfillmentError: err.message,
         lastFulfillmentAt: new Date().toISOString(),
       };
-      order.failureReason = 'Payment received — your order is being processed.';
+      order.failureReason = order.metadata?.providerPurchaseAttemptedAt
+        ? 'TopDeals call did not confirm. It will not be sent again automatically. Resubmit only if TopDeals has no matching order.'
+        : err.message || 'Payment received — the provider call did not start.';
       order.retryCount = (order.retryCount || 0) + 1;
       await order.save();
       await publishOrderUpdate(order, {
         io,
-        trigger: 'fulfillment.queued',
+        trigger: 'fulfillment',
         previousDeliveryStatus: order.deliveryStatus,
       });
     }
