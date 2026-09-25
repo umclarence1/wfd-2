@@ -45,8 +45,7 @@ export default function OrderProviderStatusModal({ order, open, onClose, onSynce
   useEffect(() => {
     if (!open || !order) return undefined;
     fetchStatus();
-    const interval = setInterval(fetchStatus, 15_000);
-    return () => clearInterval(interval);
+    return undefined;
   }, [open, order, fetchStatus]);
 
   if (!open || !order) return null;
@@ -126,10 +125,6 @@ export default function OrderProviderStatusModal({ order, open, onClose, onSynce
             <p className="text-xs text-slate-500">Last checked: {formatDate(status.checkedAt)}</p>
           )}
 
-          <p className="text-xs text-slate-500">
-            Status refreshes every 15 seconds while this panel is open. When the API reports delivered or processing,
-            your order status updates automatically.
-          </p>
         </div>
 
         <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-4">

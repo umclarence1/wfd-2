@@ -6,10 +6,8 @@ import connectDB from './config/db.js';
 import { createApp } from './app.js';
 import { autoSeedIfEmpty } from './scripts/autoSeed.js';
 import { migrateSiteSettingsOnBoot } from './services/siteSettingsService.js';
-import { syncOpenProviderOrders } from './services/orderProviderStatusService.js';
 import { notifyStaleMtnPendingOrders } from './services/mtnPendingNoticeService.js';
 
-const PROVIDER_STATUS_SYNC_MS = 2 * 60 * 1000;
 const MTN_PENDING_NOTICE_MS = 2 * 60 * 1000;
 
 const io = new Server({
@@ -37,19 +35,6 @@ await autoSeedIfEmpty();
 
 server.listen(env.port, () => {
   console.log(`Server running on port ${env.port}`);
-
-  setInterval(async () => {
-    try {
-      const summary = await syncOpenProviderOrders(io);
-      if (summary.synced > 0 || summary.verificationEmails > 0) {
-        console.log(
-          `[PROVIDER_SYNC] checked=${summary.checked} synced=${summary.synced} verificationEmails=${summary.verificationEmails}`
-        );
-      }
-    } catch (err) {
-      console.error('[PROVIDER_SYNC] Background sync failed:', err.message);
-    }
-  }, PROVIDER_STATUS_SYNC_MS);
 
   setInterval(async () => {
     try {

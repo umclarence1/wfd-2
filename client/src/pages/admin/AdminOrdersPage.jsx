@@ -5,9 +5,6 @@ import api from '../../api/client';
 import { useToast } from '../../context/ToastContext';
 import { formatCurrency, formatDate } from '../../utils/validation';
 import AdminPageHeader from '../../components/admin/AdminPageHeader';
-import OrderProviderStatusModal, {
-  OrderProviderStatusButton,
-} from '../../components/admin/OrderProviderStatusModal';
 
 const deliveryStatuses = [
   'pending',
@@ -103,7 +100,6 @@ export default function AdminOrdersPage() {
   const [updatingId, setUpdatingId] = useState(null);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [bulkStatus, setBulkStatus] = useState('delivered');
-  const [providerOrder, setProviderOrder] = useState(null);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['admin-orders', status, network, search],
@@ -118,9 +114,9 @@ export default function AdminOrdersPage() {
           },
         })
         .then((r) => r.data),
-    staleTime: 0,
-    refetchOnWindowFocus: true,
-    refetchInterval: import.meta.env.PROD ? 60_000 : false,
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+    refetchInterval: false,
   });
 
   const orders = data?.orders || [];
@@ -437,14 +433,13 @@ export default function AdminOrdersPage() {
                 <th>Bundle</th>
                 <th>Amount</th>
                 <th className="min-w-[200px]">Status</th>
-                <th>Date</th>
-                <th className="pr-4">Actions</th>
+                <th className="pr-4">Date</th>
               </tr>
             </thead>
             <tbody>
               {orders.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="py-10 text-center text-slate-500">
+                  <td colSpan={9} className="py-10 text-center text-slate-500">
                     No orders found for the selected filters.
                   </td>
                 </tr>
@@ -506,10 +501,7 @@ export default function AdminOrdersPage() {
                           </select>
                         </div>
                       </td>
-                      <td className="whitespace-nowrap text-sm text-slate-600">{formatDate(order.createdAt)}</td>
-                      <td className="pr-4">
-                        <OrderProviderStatusButton onClick={() => setProviderOrder(order)} />
-                      </td>
+                      <td className="whitespace-nowrap pr-4 text-sm text-slate-600">{formatDate(order.createdAt)}</td>
                     </tr>
                   );
                 })
@@ -519,12 +511,6 @@ export default function AdminOrdersPage() {
         </div>
       )}
 
-      <OrderProviderStatusModal
-        order={providerOrder}
-        open={Boolean(providerOrder)}
-        onClose={() => setProviderOrder(null)}
-        onSynced={() => queryClient.invalidateQueries({ queryKey: ['admin-orders'] })}
-      />
     </div>
   );
 }

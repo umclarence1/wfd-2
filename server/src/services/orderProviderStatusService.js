@@ -6,9 +6,9 @@ import { resolveProviderForCategory } from './apiProviderService.js';
 import { sendNumberVerificationEmail } from './emailService.js';
 import { isCheckoutEmail } from '../utils/checkoutEmail.js';
 import { publishOrderUpdate } from './orderWebhookService.js';
-import { isRealProviderReference } from '../utils/providerReference.js';
+import { isRealProviderReference, isTopDealsOrderId } from '../utils/providerReference.js';
 import {
-  isOrderSubmittedToProvider,
+  markManualFulfillment,
   repairStaleProviderSubmission,
   resolveDeliveryStatusFromProvider,
   shouldSkipAutoFulfillment,
@@ -106,6 +106,19 @@ export const syncOrderProviderStatus = async (orderId, io) => {
   const apiReference = order.providerReference;
 
   const result = await checkProviderStatus(apiReference, order.category, providerId, order.reference);
+  const alreadySent =
+    isTopDealsOrderId(apiReference)
+    || isRealProviderReference(apiReference, order.reference)
+    || order.providerResponse?.success === true
+    || order.providerResponse?.alreadySubmitted === true
+    || Boolean(order.metadata?.topdealsOrderId);
+  if (result.status === 'queued' && alreadySent) {
+    result.status = 'processing';
+    result.raw = {
+      ...(result.raw || {}),
+      message: 'Already submitted to TopDeals.',
+    };
+  }
   const mappedDelivery = mapProviderStatusToDelivery(order, result.status);
 
   let synced = false;
@@ -138,6 +151,7 @@ export const syncOrderProviderStatus = async (orderId, io) => {
 
     if (nextStatus !== order.deliveryStatus) {
       order.deliveryStatus = nextStatus;
+      if (nextStatus === 'delivered') markManualFulfillment(order);
       synced = true;
     }
   }
