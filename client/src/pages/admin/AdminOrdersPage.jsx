@@ -100,6 +100,7 @@ export default function AdminOrdersPage() {
   const [updatingId, setUpdatingId] = useState(null);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [bulkStatus, setBulkStatus] = useState('delivered');
+  const [selectAllMatching, setSelectAllMatching] = useState(false);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['admin-orders', status, network, search],
@@ -127,6 +128,7 @@ export default function AdminOrdersPage() {
 
   useEffect(() => {
     setSelectedIds(new Set());
+    setSelectAllMatching(false);
   }, [status, network, search]);
 
   const updateOrder = useMutation({
@@ -140,10 +142,11 @@ export default function AdminOrdersPage() {
   });
 
   const bulkUpdateOrders = useMutation({
-    mutationFn: (payload) => api.patch('/admin/orders/bulk-status', payload),
+    mutationFn: (payload) => api.patch('/admin/orders/bulk-status', payload, { timeout: 120000 }),
     onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ['admin-orders'] });
       setSelectedIds(new Set());
+      setSelectAllMatching(false);
       const count = res.data.modifiedCount ?? 0;
       toast(`Updated ${count} order${count === 1 ? '' : 's'}.`, 'success');
     },
@@ -159,11 +162,13 @@ export default function AdminOrdersPage() {
   };
 
   const toggleSelectAll = () => {
-    if (allVisibleSelected) {
+    if (selectAllMatching || allVisibleSelected) {
+      setSelectAllMatching(false);
       setSelectedIds(new Set());
       return;
     }
     setSelectedIds(new Set(visibleIds));
+    setSelectAllMatching(true);
   };
 
   const toggleSelect = (orderId) => {
@@ -173,6 +178,7 @@ export default function AdminOrdersPage() {
       else next.add(orderId);
       return next;
     });
+    setSelectAllMatching(false);
   };
 
   const markAllProcessing = useMutation({
@@ -183,7 +189,7 @@ export default function AdminOrdersPage() {
         network: network || undefined,
         search: search || undefined,
         confirm: true,
-      }),
+      }, { timeout: 120000 }),
     onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ['admin-orders'] });
       queryClient.invalidateQueries({ queryKey: ['admin-orders-processing-count'] });
@@ -192,6 +198,26 @@ export default function AdminOrdersPage() {
       toast(`Marked ${count} processing order${count === 1 ? '' : 's'} as delivered.`, 'success');
     },
     onError: (err) => toast(err.response?.data?.message || 'Could not update processing orders.', 'error'),
+  });
+
+  const markAllMatching = useMutation({
+    mutationFn: () =>
+      api.patch('/admin/orders/mark-all-status', {
+        fromStatus: status || undefined,
+        deliveryStatus: bulkStatus,
+        network: network || undefined,
+        search: search || undefined,
+        confirm: true,
+      }, { timeout: 120000 }),
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ['admin-orders'] });
+      queryClient.invalidateQueries({ queryKey: ['admin-orders-processing-count'] });
+      setSelectedIds(new Set());
+      setSelectAllMatching(false);
+      const count = res.data.modifiedCount ?? 0;
+      toast(`Updated ${count} order${count === 1 ? '' : 's'}.`, 'success');
+    },
+    onError: (err) => toast(err.response?.data?.message || 'Bulk update failed.', 'error'),
   });
 
   const { data: processingCountData } = useQuery({
@@ -233,6 +259,18 @@ export default function AdminOrdersPage() {
   };
 
   const applyBulkUpdate = () => {
+    if (selectAllMatching) {
+      const scope = status ? formatStatusLabel(status) : 'paid';
+      if (
+        !window.confirm(
+          `Set all ${total} matching ${scope} orders to ${formatStatusLabel(bulkStatus)}? This includes every order for the current filters, not only the rows on this page.`
+        )
+      ) {
+        return;
+      }
+      markAllMatching.mutate();
+      return;
+    }
     if (selectedIds.size === 0) return;
     bulkUpdateOrders.mutate({
       orderIds: Array.from(selectedIds),
@@ -375,7 +413,7 @@ export default function AdminOrdersPage() {
         <div className="sticky top-0 z-20 flex flex-wrap items-center gap-3 rounded-xl border border-white/10 bg-[var(--admin-navy-2)] px-4 py-3 shadow-lg">
           <span className="flex items-center gap-2 text-sm font-bold text-white">
             <CheckSquare className="h-4 w-4 text-[var(--admin-gold)]" />
-            {selectedIds.size} order{selectedIds.size === 1 ? '' : 's'} selected
+            {selectAllMatching ? total : selectedIds.size} order{(selectAllMatching ? total : selectedIds.size) === 1 ? '' : 's'} selected
           </span>
           <select
             className="rounded-lg border border-white/15 bg-[#0f172a] px-3 py-2 text-sm text-white"
@@ -391,15 +429,20 @@ export default function AdminOrdersPage() {
           <button
             type="button"
             className="admin-gold-btn !py-2 text-sm"
-            disabled={bulkUpdateOrders.isPending}
+            disabled={bulkUpdateOrders.isPending || markAllMatching.isPending}
             onClick={applyBulkUpdate}
           >
-            {bulkUpdateOrders.isPending ? 'Updating...' : `Apply to ${selectedIds.size}`}
+            {bulkUpdateOrders.isPending || markAllMatching.isPending
+              ? 'Updating...'
+              : `Apply to ${selectAllMatching ? total : selectedIds.size}`}
           </button>
           <button
             type="button"
             className="text-sm font-semibold text-slate-400 hover:text-white"
-            onClick={() => setSelectedIds(new Set())}
+            onClick={() => {
+              setSelectedIds(new Set());
+              setSelectAllMatching(false);
+            }}
           >
             Clear
           </button>
@@ -418,7 +461,7 @@ export default function AdminOrdersPage() {
                   <input
                     type="checkbox"
                     className="h-4 w-4 rounded border-slate-300 text-amber-500 focus:ring-amber-400"
-                    checked={allVisibleSelected}
+                    checked={selectAllMatching || allVisibleSelected}
                     ref={(el) => {
                       if (el) el.indeterminate = someVisibleSelected && !allVisibleSelected;
                     }}

@@ -278,9 +278,35 @@ const applyNetworkFilter = (filter, network, category) => {
   return filter;
 };
 
+const deliveryBulkUpdate = (deliveryStatus, paymentStatus) => {
+  const $set = {};
+  const $unset = {};
+  if (deliveryStatus) $set.deliveryStatus = deliveryStatus;
+  if (paymentStatus) $set.paymentStatus = paymentStatus;
+  if (deliveryStatus === 'delivered') {
+    const now = new Date().toISOString();
+    Object.assign($set, {
+      'metadata.manuallyFulfilled': true,
+      'metadata.manuallyFulfilledAt': now,
+      'metadata.providerSubmissionLocked': true,
+      'metadata.deliveredAt': now,
+      'metadata.queuedForProvider': false,
+      'metadata.pendingProviderRetry': false,
+      'metadata.requiresReconciliation': false,
+      'metadata.fulfillmentInProgress': false,
+    });
+    $unset.failureReason = '';
+  }
+  const update = {};
+  if (Object.keys($set).length) update.$set = $set;
+  if (Object.keys($unset).length) update.$unset = $unset;
+  return update;
+};
+
 router.patch('/orders/mark-all-status', requirePermission('orders'), validateBody(orderMarkAllStatusSchema), asyncHandler(async (req, res) => {
   const { fromStatus, deliveryStatus, network, search } = req.body;
-  const filter = { ...PAID_ORDER_FILTER, deliveryStatus: fromStatus };
+  const filter = { ...PAID_ORDER_FILTER };
+  if (fromStatus) filter.deliveryStatus = fromStatus;
   if (search) {
     const safe = escapeRegex(String(search).slice(0, 100));
     filter.$or = [
@@ -293,21 +319,7 @@ router.patch('/orders/mark-all-status', requirePermission('orders'), validateBod
   }
   applyNetworkFilter(filter, network);
 
-  const now = new Date().toISOString();
-  const set = { deliveryStatus };
-  if (deliveryStatus === 'delivered') {
-    set['metadata.manuallyFulfilled'] = true;
-    set['metadata.manuallyFulfilledAt'] = now;
-    set['metadata.providerSubmissionLocked'] = true;
-    set['metadata.deliveredAt'] = now;
-    set['metadata.queuedForProvider'] = false;
-    set['metadata.pendingProviderRetry'] = false;
-    set['metadata.requiresReconciliation'] = false;
-    set['metadata.fulfillmentInProgress'] = false;
-    set.failureReason = undefined;
-  }
-
-  const result = await Order.updateMany(filter, { $set: set });
+  const result = await Order.updateMany(filter, deliveryBulkUpdate(deliveryStatus));
 
   await logAudit({
     user: req.user,
@@ -315,7 +327,7 @@ router.patch('/orders/mark-all-status', requirePermission('orders'), validateBod
     resource: 'Order',
     details: {
       markAll: true,
-      fromStatus,
+      fromStatus: fromStatus || null,
       deliveryStatus,
       network: network || null,
       modifiedCount: result.modifiedCount,
@@ -333,40 +345,10 @@ router.patch('/orders/mark-all-status', requirePermission('orders'), validateBod
 
 router.patch('/orders/bulk-status', requirePermission('orders'), validateBody(orderBulkStatusUpdateSchema), asyncHandler(async (req, res) => {
   const { orderIds, deliveryStatus, paymentStatus } = req.body;
-  const updates = {};
-  if (deliveryStatus) updates.deliveryStatus = deliveryStatus;
-  if (paymentStatus) updates.paymentStatus = paymentStatus;
-
-  const before = await Order.find({ _id: { $in: orderIds } }).select(
-    'deliveryStatus paymentStatus reference'
+  const result = await Order.updateMany(
+    { _id: { $in: orderIds } },
+    deliveryBulkUpdate(deliveryStatus, paymentStatus)
   );
-  const beforeDeliveryMap = new Map(before.map((o) => [String(o._id), o.deliveryStatus]));
-  const beforePaymentMap = new Map(before.map((o) => [String(o._id), o.paymentStatus]));
-
-  const result = await Order.updateMany({ _id: { $in: orderIds } }, updates);
-  const orders = await Order.find({ _id: { $in: orderIds } });
-
-  for (const order of orders) {
-    if (deliveryStatus === 'delivered') {
-      markManualFulfillment(order);
-      await order.save();
-    }
-    if (deliveryStatus === 'verification') {
-      try {
-        const previous = beforeDeliveryMap.get(String(order._id));
-        const emailed = await maybeSendVerificationEmail(order, previous, { force: true });
-        if (emailed) await order.save();
-      } catch (emailErr) {
-        console.error('[VERIFICATION_EMAIL] Bulk update email failed:', emailErr.message);
-      }
-    }
-    await publishOrderUpdate(order, {
-      io: req.app.get('io'),
-      trigger: 'admin.bulk',
-      previousDeliveryStatus: beforeDeliveryMap.get(String(order._id)),
-      previousPaymentStatus: beforePaymentMap.get(String(order._id)),
-    });
-  }
 
   await logAudit({
     user: req.user,
@@ -376,7 +358,11 @@ router.patch('/orders/bulk-status', requirePermission('orders'), validateBody(or
     req,
   });
 
-  res.json({ success: true, modifiedCount: result.modifiedCount, orders });
+  res.json({
+    success: true,
+    modifiedCount: result.modifiedCount,
+    matchedCount: result.matchedCount,
+  });
 }));
 
 router.patch('/orders/:id/status', requirePermission('orders'), validateBody(orderStatusUpdateSchema), asyncHandler(async (req, res) => {

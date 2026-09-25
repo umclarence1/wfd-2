@@ -92,7 +92,7 @@ export const orderStatusUpdateSchema = z
   });
 
 export const orderMarkAllStatusSchema = z.object({
-  fromStatus: z.enum(['pending', 'processing', 'verification', 'failed']),
+  fromStatus: orderStatusEnum.optional(),
   deliveryStatus: orderStatusEnum,
   network: z.string().max(40).optional(),
   search: z.string().max(100).optional(),
@@ -101,7 +101,7 @@ export const orderMarkAllStatusSchema = z.object({
 
 export const orderBulkStatusUpdateSchema = z
   .object({
-    orderIds: z.array(z.string().min(1)).min(1).max(500),
+    orderIds: z.array(z.string().min(1)).min(1).max(5000),
     deliveryStatus: orderStatusEnum.optional(),
     paymentStatus: paymentStatusEnum.optional(),
   })
