@@ -2,7 +2,7 @@ import { Router } from 'express';
 import Order from '../models/Order.js';
 import { AppError, asyncHandler } from '../middleware/errorHandler.js';
 import { optionalAuth, protect, noCache } from '../middleware/auth.js';
-import { paymentLimiter, otpLimiter, promoLimiter } from '../middleware/rateLimit.js';
+import { paymentLimiter, verifyLimiter, otpLimiter, promoLimiter } from '../middleware/rateLimit.js';
 import { validateBody, validateParams } from '../middleware/validate.js';
 import {
   orderCreateSchema,
@@ -21,6 +21,7 @@ import {
 import { createPendingPayment } from '../services/pendingPaymentService.js';
 import { initializePayment, getPublicKey, verifyPayment } from '../services/paystackService.js';
 import { markOrderPaidFromPaystack } from '../services/paymentProcessingService.js';
+import { fulfillPaidOrderImmediately } from '../services/immediateFulfillmentService.js';
 import { publishOrderUpdate } from '../services/orderWebhookService.js';
 import { createAndSendOTP, verifyOTP } from '../services/authService.js';
 import { validateEmail } from '../utils/validation.js';
@@ -134,7 +135,7 @@ router.post(
 router.get(
   '/verify/:reference',
   noCache,
-  paymentLimiter,
+  verifyLimiter,
   validateParams(paymentReferenceSchema),
   asyncHandler(async (req, res) => {
     const paymentRef = req.params.reference;
@@ -183,6 +184,7 @@ router.get(
       paystackTransactionId: payment.id,
       amountPaid,
       io: req.app.get('io'),
+      fulfill: false,
     });
 
     const paidOrder = result.order || (await Order.findOne({ paymentReference: paymentRef }));
@@ -195,6 +197,14 @@ router.get(
       .populate('checkers', 'serialNumber pin checkerType')
       .populate('package', 'dataAmount');
     res.json({ success: true, order: sanitizeOrder(updated, customerOptions(updated)) });
+
+    if (!result.duplicate && updated.paymentStatus === 'paid') {
+      try {
+        await fulfillPaidOrderImmediately(updated._id, req.app.get('io'));
+      } catch (err) {
+        console.error('[PAYMENT] Immediate fulfillment error:', updated.reference, err.message);
+      }
+    }
   })
 );
 

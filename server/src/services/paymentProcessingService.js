@@ -34,6 +34,7 @@ export const markOrderPaidFromPaystack = async ({
   paystackTransactionId,
   amountPaid,
   io,
+  fulfill = true,
 }) => {
   let order = await Order.findOne({ paymentReference });
   let createdFromPending = false;
@@ -45,14 +46,22 @@ export const markOrderPaidFromPaystack = async ({
       status: 'processing',
     });
   } catch (err) {
-    if (err.code === 11000) {
-      const existing = order || (await Order.findOne({ paymentReference }));
-      logFulfillmentEvent(existing?.reference, FULFILLMENT_EVENTS.DUPLICATE_PAYMENT_IGNORED, {
-        paymentReference,
-      });
+    if (err.code !== 11000) throw err;
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      const existing = await Order.findOne({ paymentReference });
+      if (existing?.paymentStatus === 'paid') {
+        logFulfillmentEvent(existing.reference, FULFILLMENT_EVENTS.DUPLICATE_PAYMENT_IGNORED, {
+          paymentReference,
+        });
+        return { order: existing, duplicate: true };
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    const pending = await findPendingPayment(paymentReference, { allowExpired: true });
+    if (!pending) {
+      const existing = await Order.findOne({ paymentReference });
       return { order: existing, duplicate: true };
     }
-    throw err;
   }
 
   if (order?.paymentStatus === 'paid') {
@@ -116,11 +125,13 @@ export const markOrderPaidFromPaystack = async ({
   });
 
   let refreshed = order;
-  try {
-    refreshed = (await fulfillPaidOrderImmediately(order._id, io)) || order;
-  } catch (err) {
-    console.error('[PAYMENT] Immediate fulfillment error:', order.reference, err.message);
-    refreshed = await Order.findById(order._id);
+  if (fulfill) {
+    try {
+      refreshed = (await fulfillPaidOrderImmediately(order._id, io)) || order;
+    } catch (err) {
+      console.error('[PAYMENT] Immediate fulfillment error:', order.reference, err.message);
+      refreshed = await Order.findById(order._id);
+    }
   }
 
   return { order: refreshed || order, duplicate: false };

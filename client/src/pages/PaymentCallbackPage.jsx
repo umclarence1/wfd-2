@@ -17,14 +17,18 @@ export default function PaymentCallbackPage() {
     const verifyUrl = `/orders/verify/${reference}`;
 
     const verifyWithRetry = async () => {
-      const delays = [0, 2000, 4000, 6000, 8000];
+      const delays = [0, 3000, 5000, 7000, 10000, 12000, 15000, 15000, 15000];
       let lastError;
       for (const delay of delays) {
         if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
         try {
-          return await api.get(verifyUrl);
+          return await api.get(verifyUrl, { timeout: 25000 });
         } catch (err) {
           lastError = err;
+          const code = err.response?.status;
+          if (code && code !== 400 && code !== 404 && code !== 409 && code !== 429 && code < 500) {
+            throw err;
+          }
         }
       }
       throw lastError;
@@ -86,8 +90,8 @@ export default function PaymentCallbackPage() {
             <XCircle className="mx-auto h-16 w-16 text-red-500" />
             <h1 className="mt-4 text-2xl font-bold">Payment Not Completed</h1>
             <p className="mt-2 text-gray-600">
-              Payment was not completed, so no order was created. If you approved payment on your phone
-              (*170#), wait a moment and refresh this page.
+              If you already approved the payment on your phone, refresh this page. Paystack can take a minute to
+              confirm it, and your order is saved as soon as that confirmation arrives.
             </p>
             <Link to="/services" className="btn-primary mt-6 inline-block">Back to Services</Link>
           </>

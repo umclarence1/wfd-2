@@ -45,6 +45,15 @@ export const paymentLimiter = rateLimit({
   },
 });
 
+/** The return page polls this. Do not share the checkout limit or a paid customer gets locked out. */
+export const verifyLimiter = rateLimit({
+  windowMs: 2 * 60 * 1000,
+  max: 40,
+  message: { success: false, message: 'Still confirming payment. Wait a few seconds and refresh this page.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 export const webhookLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 60,
