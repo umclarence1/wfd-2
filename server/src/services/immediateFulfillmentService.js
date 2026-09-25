@@ -21,7 +21,19 @@ export const fulfillPaidOrderImmediately = async (orderId, io, { maxAttempts = 1
   if (!lastOrder || isOrderSubmittedToProvider(lastOrder)) {
     return lastOrder;
   }
-  if (lastOrder.metadata?.providerPurchaseAttemptedAt) {
+  if (
+    lastOrder.deliveryStatus === 'delivered'
+    || lastOrder.metadata?.manuallyFulfilled === true
+    || lastOrder.metadata?.providerSubmissionLocked === true
+  ) {
+    return lastOrder;
+  }
+  const attempted = Boolean(lastOrder.metadata?.providerPurchaseAttemptedAt);
+  const heardBack = Boolean(
+    lastOrder.providerResponse
+    || lastOrder.metadata?.topdealsOrderId
+  );
+  if (attempted && heardBack) {
     return lastOrder;
   }
 

@@ -157,6 +157,17 @@ router.get(
     });
 
     if (order?.paymentStatus === 'paid') {
+      if (
+        order.deliveryStatus !== 'delivered'
+        && order.metadata?.manuallyFulfilled !== true
+        && order.metadata?.providerSubmissionLocked !== true
+      ) {
+        try {
+          await fulfillPaidOrderImmediately(order._id, req.app.get('io'));
+        } catch (err) {
+          console.error('[PAYMENT] Immediate fulfillment error:', order.reference, err.message);
+        }
+      }
       const updated = await Order.findById(order._id)
         .populate('checker', 'serialNumber pin checkerType')
         .populate('checkers', 'serialNumber pin checkerType')
@@ -184,7 +195,7 @@ router.get(
       paystackTransactionId: payment.id,
       amountPaid,
       io: req.app.get('io'),
-      fulfill: false,
+      fulfill: true,
     });
 
     const paidOrder = result.order || (await Order.findOne({ paymentReference: paymentRef }));
@@ -197,14 +208,6 @@ router.get(
       .populate('checkers', 'serialNumber pin checkerType')
       .populate('package', 'dataAmount');
     res.json({ success: true, order: sanitizeOrder(updated, customerOptions(updated)) });
-
-    if (!result.duplicate && updated.paymentStatus === 'paid') {
-      try {
-        await fulfillPaidOrderImmediately(updated._id, req.app.get('io'));
-      } catch (err) {
-        console.error('[PAYMENT] Immediate fulfillment error:', updated.reference, err.message);
-      }
-    }
   })
 );
 

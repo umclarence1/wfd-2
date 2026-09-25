@@ -11,7 +11,26 @@ import { logSecurityEvent } from './securityLogger.js';
 import { FULFILLMENT_EVENTS, logFulfillmentEvent } from './fulfillmentAudit.js';
 import { publishOrderUpdate } from './orderWebhookService.js';
 import ProcessedWebhook from '../models/ProcessedWebhook.js';
+
 const AMOUNT_TOLERANCE = 0.02;
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const deliverIfStillUnsent = async (order, io) => {
+  if (!order || order.paymentStatus !== 'paid') return order;
+  if (
+    order.deliveryStatus === 'delivered'
+    || order.metadata?.manuallyFulfilled === true
+    || order.metadata?.providerSubmissionLocked === true
+  ) {
+    return order;
+  }
+  try {
+    return (await fulfillPaidOrderImmediately(order._id, io)) || order;
+  } catch (err) {
+    console.error('[PAYMENT] Immediate fulfillment error:', order.reference, err.message);
+    return Order.findById(order._id);
+  }
+};
 
 const validatePaidAmount = (amountPaid, expectedTotal, paymentReference) => {
   if (amountPaid == null || !Number.isFinite(Number(amountPaid))) {
@@ -53,14 +72,14 @@ export const markOrderPaidFromPaystack = async ({
         logFulfillmentEvent(existing.reference, FULFILLMENT_EVENTS.DUPLICATE_PAYMENT_IGNORED, {
           paymentReference,
         });
-        return { order: existing, duplicate: true };
+        return { order: await deliverIfStillUnsent(existing, io), duplicate: true };
       }
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      await sleep(500);
     }
     const pending = await findPendingPayment(paymentReference, { allowExpired: true });
     if (!pending) {
       const existing = await Order.findOne({ paymentReference });
-      return { order: existing, duplicate: true };
+      return { order: await deliverIfStillUnsent(existing, io), duplicate: true };
     }
   }
 
@@ -69,7 +88,7 @@ export const markOrderPaidFromPaystack = async ({
     logFulfillmentEvent(order.reference, FULFILLMENT_EVENTS.DUPLICATE_PAYMENT_IGNORED, {
       paymentReference,
     });
-    return { order, duplicate: true };
+    return { order: await deliverIfStillUnsent(order, io), duplicate: true };
   }
 
   if (order && order.paymentStatus !== 'paid') {
@@ -89,7 +108,7 @@ export const markOrderPaidFromPaystack = async ({
   if (!order) {
     const existing = await Order.findOne({ paymentReference });
     if (existing?.paymentStatus === 'paid') {
-      return { order: existing, duplicate: true };
+      return { order: await deliverIfStillUnsent(existing, io), duplicate: true };
     }
     throw new AppError('Order not found for payment reference.', 404);
   }
