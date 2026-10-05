@@ -31,6 +31,21 @@ const formatTimePart = (createdAt) =>
     minute: '2-digit',
   });
 
+const formatStatusLabel = (value) => {
+  if (!value) return 'Processing';
+  return value.charAt(0).toUpperCase() + value.slice(1);
+};
+
+const deliveryBadgeClass = {
+  pending: 'bg-amber-100 text-amber-800',
+  processing: 'bg-sky-100 text-sky-800',
+  verification: 'bg-violet-100 text-violet-800',
+  delivered: 'bg-emerald-100 text-emerald-800',
+  failed: 'bg-red-100 text-red-800',
+  refunded: 'bg-slate-200 text-slate-700',
+  cancelled: 'bg-gray-200 text-gray-700',
+};
+
 export default function OrderHistoryPage() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -55,7 +70,7 @@ export default function OrderHistoryPage() {
       try {
         const { data } = await api.post('/orders/history/by-references', {
           paymentReferences: refs,
-        });
+        }, { timeout: 60000 });
         if (!cancelled) setOrders(data.orders || []);
       } catch (err) {
         if (!cancelled) {
@@ -97,8 +112,9 @@ export default function OrderHistoryPage() {
           <table className="min-w-full text-left text-sm">
             <thead className="border-b border-gray-200 bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-600">
               <tr>
-                <th className="px-4 py-3">Phone</th>
+                <th className="px-4 py-3">Beneficiary</th>
                 <th className="px-4 py-3">GB</th>
+                <th className="px-4 py-3">Delivery status</th>
                 <th className="px-4 py-3">Paystack reference</th>
                 <th className="px-4 py-3">Date</th>
                 <th className="px-4 py-3">Time</th>
@@ -110,6 +126,15 @@ export default function OrderHistoryPage() {
                 <tr key={order.paymentReference || order.reference} className="hover:bg-gray-50/80">
                   <td className="whitespace-nowrap px-4 py-3 font-medium text-gray-900">{order.phone || '—'}</td>
                   <td className="whitespace-nowrap px-4 py-3 text-gray-800">{formatGb(order)}</td>
+                  <td className="whitespace-nowrap px-4 py-3">
+                    <span
+                      className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${
+                        deliveryBadgeClass[order.deliveryStatus] || deliveryBadgeClass.processing
+                      }`}
+                    >
+                      {formatStatusLabel(order.deliveryStatus)}
+                    </span>
+                  </td>
                   <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-gray-800">
                     {order.paymentReference || '—'}
                   </td>

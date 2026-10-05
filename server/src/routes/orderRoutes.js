@@ -26,6 +26,9 @@ import { publishOrderUpdate } from '../services/orderWebhookService.js';
 import { createAndSendOTP, verifyOTP } from '../services/authService.js';
 import { validateEmail } from '../utils/validation.js';
 import { sanitizeOrderForCustomer } from '../utils/customerSafe.js';
+import { isRealProviderReference } from '../utils/providerReference.js';
+import { checkProviderStatus } from '../services/providerService.js';
+import { PROVIDER_IDS } from '../config/apiProviders.js';
 
 const router = Router();
 
@@ -218,20 +221,66 @@ router.post(
   asyncHandler(async (req, res) => {
     const refs = [...new Set(req.body.paymentReferences.map((r) => String(r).trim()))].slice(0, 50);
 
-    const orders = await Order.find({
+    let orders = await Order.find({
       paymentReference: { $in: refs },
       paymentStatus: 'paid',
     })
       .sort({ createdAt: -1 })
       .populate('package', 'dataAmount category name')
       .populate('checker', 'serialNumber pin checkerType')
-      .populate('checkers', 'serialNumber pin checkerType')
-      .lean();
+      .populate('checkers', 'serialNumber pin checkerType');
+
+    // Refresh TopDeals delivery status for open orders so history shows provider status.
+    const toRefresh = orders
+      .filter((order) => {
+        if (!['data_bundle', 'afa_registration'].includes(order.serviceType)) return false;
+        const providerRef = order.metadata?.topdealsOrderId || order.providerReference;
+        return isRealProviderReference(providerRef, order.reference);
+      })
+      .slice(0, 15);
+
+    await Promise.all(
+      toRefresh.map(async (order) => {
+        try {
+          const providerRef = order.metadata?.topdealsOrderId || order.providerReference;
+          const result = await checkProviderStatus(
+            providerRef,
+            order.category,
+            order.providerId || PROVIDER_IDS.TOPDEALSGH,
+            order.reference
+          );
+          if (!result?.status || result.status === 'unknown' || result.status === 'queued') return;
+
+          order.metadata = {
+            ...(order.metadata || {}),
+            lastProviderSyncAt: new Date().toISOString(),
+            lastProviderStatus: result.status,
+            ...(result.status === 'delivered'
+              ? {
+                  providerReportedDelivered: true,
+                  providerReportedDeliveredAt: new Date().toISOString(),
+                }
+              : {}),
+          };
+          if (result.raw) {
+            order.providerResponse = {
+              ...(typeof order.providerResponse === 'object' && order.providerResponse
+                ? order.providerResponse
+                : {}),
+              lastStatusCheck: result.raw,
+            };
+          }
+          await order.save();
+        } catch (err) {
+          console.error('[ORDER_HISTORY] TopDeals status refresh failed:', order.reference, err.message);
+        }
+      })
+    );
 
     res.json({
       success: true,
       orders: orders.map((order) =>
-        sanitizeOrder(order, {
+        sanitizeOrder(order.toObject ? order.toObject() : order, {
           includePhone: true,
           includeChecker: order.serviceType === 'result_checker',
         })
