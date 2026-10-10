@@ -22,8 +22,9 @@ test('uncertain provider response does not mark submitted', () => {
     },
     { successStatus: 'processing' }
   );
-  assert.equal(result.queued, false);
+  assert.equal(result.queued, true);
   assert.equal(order.metadata.requiresReconciliation, true);
+  assert.equal(order.metadata.pendingProviderRetry, true);
   assert.equal(isOrderSubmittedToProvider(order), false);
 });
 

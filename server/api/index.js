@@ -6,6 +6,7 @@ import { migrateSiteSettingsOnBoot } from '../src/services/siteSettingsService.j
 import { notifyStaleMtnPendingOrders } from '../src/services/mtnPendingNoticeService.js';
 import { syncCheckerPackageAvailability } from '../src/services/checkerService.js';
 import { syncTopDealsPackageIds } from '../src/services/topdealsPackageSyncService.js';
+import { retryQueuedProviderOrders } from '../src/services/orderRetryService.js';
 
 const BACKGROUND_JOB_MS = 60 * 1000;
 let lastBackgroundJob = 0;
@@ -19,6 +20,10 @@ const maybeRunBackgroundJobs = () => {
   });
   syncCheckerPackageAvailability().catch((err) => {
     console.error('[CHECKER_STOCK] Sync failed:', err.message);
+  });
+  // Keep unpaid TopDeals submissions moving — any API traffic can drain the retry queue.
+  retryQueuedProviderOrders(null, { limit: 12 }).catch((err) => {
+    console.error('[PROVIDER_RETRY] Background retry failed:', err.message);
   });
 };
 

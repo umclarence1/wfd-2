@@ -1,11 +1,15 @@
 import Order from '../models/Order.js';
 import { fulfillOrder } from './orderService.js';
-import { isOrderSubmittedToProvider } from '../utils/fulfillmentLock.js';
+import {
+  hasConfirmedProviderSubmission,
+  isOrderSubmittedToProvider,
+  isWithinProviderPurchaseCooldown,
+} from '../utils/fulfillmentLock.js';
 import { QUEUE_REASONS } from '../utils/providerQueue.js';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** Wallet/config only — other failures retry via cron without a "queued" flag. */
+/** Wallet/config only — other failures retry via background/cron. */
 const NON_RETRYABLE_QUEUE_REASONS = new Set([
   QUEUE_REASONS.INSUFFICIENT_BALANCE,
   QUEUE_REASONS.FORWARDING_OFF,
@@ -13,12 +17,12 @@ const NON_RETRYABLE_QUEUE_REASONS = new Set([
 ]);
 
 /**
- * Submit to TopDealsGH in-process right after payment — no background queue wait.
+ * Submit to TopDealsGH in-process right after payment.
+ * Retries briefly when the first call gets no confirmed provider id.
  */
-/** One automatic TopDeals call per paid order. Admin Resubmit is the only second send. */
-export const fulfillPaidOrderImmediately = async (orderId, io, { maxAttempts = 1 } = {}) => {
+export const fulfillPaidOrderImmediately = async (orderId, io, { maxAttempts = 2 } = {}) => {
   let lastOrder = await Order.findById(orderId);
-  if (!lastOrder || isOrderSubmittedToProvider(lastOrder)) {
+  if (!lastOrder || isOrderSubmittedToProvider(lastOrder) || hasConfirmedProviderSubmission(lastOrder)) {
     return lastOrder;
   }
   if (
@@ -26,14 +30,6 @@ export const fulfillPaidOrderImmediately = async (orderId, io, { maxAttempts = 1
     || lastOrder.metadata?.manuallyFulfilled === true
     || lastOrder.metadata?.providerSubmissionLocked === true
   ) {
-    return lastOrder;
-  }
-  const attempted = Boolean(lastOrder.metadata?.providerPurchaseAttemptedAt);
-  const heardBack = Boolean(
-    lastOrder.providerResponse
-    || lastOrder.metadata?.topdealsOrderId
-  );
-  if (attempted && heardBack) {
     return lastOrder;
   }
 
@@ -44,12 +40,20 @@ export const fulfillPaidOrderImmediately = async (orderId, io, { maxAttempts = 1
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     lastOrder = await Order.findById(orderId);
-    if (!lastOrder || isOrderSubmittedToProvider(lastOrder)) {
+    if (
+      !lastOrder
+      || isOrderSubmittedToProvider(lastOrder)
+      || hasConfirmedProviderSubmission(lastOrder)
+    ) {
       return lastOrder;
     }
 
     const queueReason = lastOrder.metadata?.queueReason;
     if (queueReason && NON_RETRYABLE_QUEUE_REASONS.has(queueReason)) {
+      return lastOrder;
+    }
+
+    if (attempt > 0 && isWithinProviderPurchaseCooldown(lastOrder)) {
       return lastOrder;
     }
 
@@ -60,7 +64,11 @@ export const fulfillPaidOrderImmediately = async (orderId, io, { maxAttempts = 1
     }
 
     lastOrder = await Order.findById(orderId);
-    if (!lastOrder || isOrderSubmittedToProvider(lastOrder)) {
+    if (
+      !lastOrder
+      || isOrderSubmittedToProvider(lastOrder)
+      || hasConfirmedProviderSubmission(lastOrder)
+    ) {
       return lastOrder;
     }
 
@@ -69,7 +77,7 @@ export const fulfillPaidOrderImmediately = async (orderId, io, { maxAttempts = 1
     }
 
     if (attempt < maxAttempts - 1) {
-      await sleep(lastOrder.metadata?.fulfillmentInProgress ? 600 : 400);
+      await sleep(lastOrder.metadata?.fulfillmentInProgress ? 800 : 500);
     }
   }
 

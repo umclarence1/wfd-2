@@ -7,19 +7,40 @@ export const findUnsubmittedProviderOrders = async (limit = 25) => {
   const candidates = await Order.find({
     paymentStatus: 'paid',
     deliveryStatus: 'processing',
-    'metadata.queuedForProvider': { $ne: true },
     'metadata.fulfillmentInProgress': { $ne: true },
     'metadata.fulfillmentAbandoned': { $ne: true },
     'metadata.manuallyFulfilled': { $ne: true },
-    'metadata.submittedToProvider': { $ne: true },
+    'metadata.providerSubmissionLocked': { $ne: true },
     serviceType: { $in: ['data_bundle', 'afa_registration', 'result_checker'] },
     retryCount: { $lt: MAX_NEVER_SUBMITTED_RETRIES },
+    $and: [
+      {
+        $or: [
+          { 'metadata.topdealsOrderId': { $exists: false } },
+          { 'metadata.topdealsOrderId': null },
+          { 'metadata.topdealsOrderId': '' },
+        ],
+      },
+      {
+        $or: [
+          { 'metadata.submittedToProvider': { $ne: true } },
+          { 'metadata.submittedToProvider': true, providerReference: { $exists: false } },
+          { 'metadata.submittedToProvider': true, providerReference: { $in: [null, ''] } },
+        ],
+      },
+    ],
   })
     .sort({ createdAt: 1 })
     .limit(Math.max(limit * 4, 20));
 
   return candidates
-    .filter((order) => !isRealProviderReference(order.providerReference, order.reference))
+    .filter((order) => {
+      if (order.providerResponse?.success === true || order.providerResponse?.alreadySubmitted === true) {
+        return false;
+      }
+      if (order.providerResponse?.orderId || order.metadata?.topdealsOrderId) return false;
+      return !isRealProviderReference(order.providerReference, order.reference);
+    })
     .slice(0, limit);
 };
 

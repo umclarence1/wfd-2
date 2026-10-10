@@ -28,6 +28,7 @@ import {
   claimFulfillmentWithRetry,
   hasConfirmedProviderSubmission,
   isOrderSubmittedToProvider,
+  isWithinProviderPurchaseCooldown,
   markManualFulfillment,
   markOrderSubmittedToProvider,
   repairStaleProviderSubmission,
@@ -209,24 +210,13 @@ const submitDataBundleWithPackageRetry = async (order, pkg) => {
   return providerResponse;
 };
 
-/** One TopDeals purchase per order. A second send happens only from admin Resubmit,
- * except when the first attempt crashed before any provider reply. */
+/** Block another TopDeals POST only when already accepted, or still inside cooldown.
+ * Timeouts / refusals / out-of-stock stay retryable so paid orders keep reaching the API. */
 const blockRepeatProviderPurchase = async (order, { adminResubmit = false } = {}) => {
   if (adminResubmit) return false;
-  if (!order.metadata?.providerPurchaseAttemptedAt) return false;
-
-  const heardBack = Boolean(
-    order.providerResponse
-    || order.metadata?.topdealsOrderId
-    || order.metadata?.requiresReconciliation
-    || order.metadata?.automaticRetryDisabled
-    || order.metadata?.queueReason
-    || order.metadata?.lastProviderError
-    || order.metadata?.lastFulfillmentError
-  );
-  // Crash/timeout after stamping attemptedAt left no reply — allow one completion send.
-  if (!heardBack) return false;
-  return true;
+  if (hasConfirmedProviderSubmission(order)) return true;
+  if (isWithinProviderPurchaseCooldown(order)) return true;
+  return false;
 };
 
 /** Provider HTTP calls must run outside MongoDB transactions (Atlas aborts long txns). */
@@ -469,15 +459,15 @@ export const fulfillOrder = async (orderId, io, { adminResubmit = false } = {}) 
       order.deliveryStatus = 'processing';
       order.metadata = {
         ...(order.metadata || {}),
-        queuedForProvider: false,
-        pendingProviderRetry: false,
-        automaticRetryDisabled: Boolean(order.metadata?.providerPurchaseAttemptedAt),
+        queuedForProvider: true,
+        pendingProviderRetry: true,
+        automaticRetryDisabled: false,
         lastFulfillmentError: err.message,
         lastFulfillmentAt: new Date().toISOString(),
       };
       order.failureReason = order.metadata?.providerPurchaseAttemptedAt
-        ? 'TopDeals call did not confirm. It will not be sent again automatically. Resubmit only if TopDeals has no matching order.'
-        : err.message || 'Payment received — the provider call did not start.';
+        ? 'TopDeals call did not confirm. Will retry automatically until accepted.'
+        : err.message || 'Payment received — the provider call did not start. Will retry.';
       order.retryCount = (order.retryCount || 0) + 1;
       await order.save();
       await publishOrderUpdate(order, {

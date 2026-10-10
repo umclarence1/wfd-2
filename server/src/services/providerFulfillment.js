@@ -30,18 +30,18 @@ export const applyProviderFulfillment = (order, providerResponse, { successStatu
     order.metadata = {
       ...(order.metadata || {}),
       requiresReconciliation: true,
-      queuedForProvider: false,
-      pendingProviderRetry: false,
-      automaticRetryDisabled: true,
+      queuedForProvider: true,
+      pendingProviderRetry: true,
+      automaticRetryDisabled: false,
       lastProviderError: providerResponse.message,
       lastUncertainPurchaseAt: new Date().toISOString(),
     };
     order.failureReason =
-      'TopDeals did not confirm this call. It was not sent again. Check TopDeals, then use Resubmit only if that order is missing.';
+      'TopDeals did not confirm this call. Will reconcile and retry automatically.';
     appendFulfillmentEvent(order, FULFILLMENT_EVENTS.PROVIDER_SUBMIT_UNCERTAIN, {
       message: providerResponse.message,
     });
-    return { shouldNotify: false, queued: false };
+    return { shouldNotify: false, queued: true };
   }
 
   if (providerResponse.queued) {
@@ -50,19 +50,19 @@ export const applyProviderFulfillment = (order, providerResponse, { successStatu
     order.deliveryStatus = 'processing';
     order.metadata = {
       ...(order.metadata || {}),
-      queuedForProvider: false,
+      queuedForProvider: true,
       queueReason: walletQueue ? queueReason : (providerResponse.queueReason || undefined),
       lastProviderError: providerResponse.message,
-      pendingProviderRetry: false,
-      automaticRetryDisabled: true,
+      pendingProviderRetry: true,
+      automaticRetryDisabled: false,
       lastQueueAt: new Date().toISOString(),
       idempotencyKey: order.reference,
       fulfillmentAbandoned: false,
     };
     order.failureReason = walletQueue
-      ? 'TopDeals wallet is low. This order was not sent again. Fund the wallet, then use admin Resubmit.'
-      : providerResponse.message || 'TopDeals refused this order. Use admin Resubmit to send it again.';
-    return { shouldNotify: false, queued: walletQueue };
+      ? 'TopDeals wallet is low. Will retry automatically after the wallet is funded.'
+      : providerResponse.message || 'TopDeals refused this order. Will retry automatically.';
+    return { shouldNotify: false, queued: true };
   }
 
   if (providerResponse.success === true || providerResponse.alreadySubmitted === true) {
@@ -107,15 +107,17 @@ export const applyProviderFulfillment = (order, providerResponse, { successStatu
   const abandon = shouldAbandonNeverSubmittedRetries(order, providerResponse);
   order.metadata = {
     ...(order.metadata || {}),
-    queuedForProvider: false,
-    pendingProviderRetry: false,
-    automaticRetryDisabled: true,
+    queuedForProvider: !abandon,
+    pendingProviderRetry: !abandon,
+    automaticRetryDisabled: false,
     fulfillmentAbandoned: abandon,
     queueReason: providerResponse.queueReason || 'provider_rejected',
     lastProviderError: providerResponse.message || 'Provider rejected submission.',
     lastQueueAt: new Date().toISOString(),
   };
-  order.failureReason = `TopDeals did not accept this order. It stays Processing until you Resubmit. ${providerResponse.message || ''}`.trim();
+  order.failureReason = abandon
+    ? `TopDeals did not accept this order after repeated tries. ${providerResponse.message || ''}`.trim()
+    : `TopDeals did not accept this order. Will retry automatically. ${providerResponse.message || ''}`.trim();
 
   if (candidateRef && isRealProviderReference(candidateRef, order.reference)) {
     order.providerReference = String(candidateRef);
