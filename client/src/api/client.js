@@ -42,6 +42,19 @@ api.interceptors.request.use(async (config) => {
   return config;
 });
 
+let refreshPromise = null;
+
+const refreshAccessSession = async () => {
+  if (!refreshPromise) {
+    refreshPromise = axios
+      .post(`${api.defaults.baseURL}/auth/refresh`, null, { withCredentials: true })
+      .finally(() => {
+        refreshPromise = null;
+      });
+  }
+  return refreshPromise;
+};
+
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
@@ -58,6 +71,24 @@ api.interceptors.response.use(
       original.headers['X-CSRF-Token'] = token;
       return api(original);
     }
+
+    const url = String(original?.url || '');
+    const isAuthRefresh = url.includes('/auth/refresh') || url.includes('/auth/login');
+    if (
+      error.response?.status === 401 &&
+      original &&
+      !original._authRetry &&
+      !isAuthRefresh
+    ) {
+      original._authRetry = true;
+      try {
+        await refreshAccessSession();
+        return api(original);
+      } catch {
+        return Promise.reject(error);
+      }
+    }
+
     return Promise.reject(error);
   }
 );

@@ -33,7 +33,7 @@ export const generateCsrfToken = (req, res) => {
     httpOnly: false,
     secure: env.nodeEnv === 'production',
     sameSite: env.nodeEnv === 'production' ? 'lax' : 'strict',
-    maxAge: 60 * 60 * 1000,
+    maxAge: 5 * 60 * 60 * 1000,
     path: '/',
   });
   return token;

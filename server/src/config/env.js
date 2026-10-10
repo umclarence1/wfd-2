@@ -19,7 +19,7 @@ export const env = {
   jwt: {
     accessSecret: requireSecret('JWT_ACCESS_SECRET', 'dev-access-secret-change-in-production'),
     refreshSecret: requireSecret('JWT_REFRESH_SECRET', 'dev-refresh-secret-change-in-production'),
-    accessExpires: process.env.JWT_ACCESS_EXPIRES || '15m',
+    accessExpires: process.env.JWT_ACCESS_EXPIRES || '5h',
     refreshExpires: process.env.JWT_REFRESH_EXPIRES || '7d',
   },
   paystack: {
