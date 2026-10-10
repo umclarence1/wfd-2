@@ -209,10 +209,23 @@ const submitDataBundleWithPackageRetry = async (order, pkg) => {
   return providerResponse;
 };
 
-/** One TopDeals purchase per order. A second send happens only from admin Resubmit. */
+/** One TopDeals purchase per order. A second send happens only from admin Resubmit,
+ * except when the first attempt crashed before any provider reply. */
 const blockRepeatProviderPurchase = async (order, { adminResubmit = false } = {}) => {
   if (adminResubmit) return false;
   if (!order.metadata?.providerPurchaseAttemptedAt) return false;
+
+  const heardBack = Boolean(
+    order.providerResponse
+    || order.metadata?.topdealsOrderId
+    || order.metadata?.requiresReconciliation
+    || order.metadata?.automaticRetryDisabled
+    || order.metadata?.queueReason
+    || order.metadata?.lastProviderError
+    || order.metadata?.lastFulfillmentError
+  );
+  // Crash/timeout after stamping attemptedAt left no reply — allow one completion send.
+  if (!heardBack) return false;
   return true;
 };
 
