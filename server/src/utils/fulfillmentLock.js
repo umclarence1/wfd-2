@@ -106,9 +106,9 @@ export const repairStaleProviderSubmission = (order) => {
   return true;
 };
 
-export const PROVIDER_PURCHASE_COOLDOWN_MS = 90 * 1000;
+export const PROVIDER_PURCHASE_COOLDOWN_MS = 45 * 1000;
 /** After timeout/unknown provider response — wait before another POST /purchase. */
-export const UNCERTAIN_SUBMISSION_COOLDOWN_MS = 5 * 60 * 1000;
+export const UNCERTAIN_SUBMISSION_COOLDOWN_MS = 2 * 60 * 1000;
 
 export const isWithinProviderPurchaseCooldown = (order) => {
   const at = order?.metadata?.providerPurchaseAttemptedAt;

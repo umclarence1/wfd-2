@@ -431,6 +431,8 @@ router.post('/orders/:id/resubmit', requirePermission('orders'), asyncHandler(as
     automaticRetryDisabled: false,
     duplicateSendBlocked: false,
     pendingProviderRetry: false,
+    // Admin Resubmit explicitly allows a send even for legacy unsent rows.
+    autoProviderFulfill: true,
   };
   delete order.metadata.queueReason;
   delete order.metadata.providerPurchaseAttemptedAt;

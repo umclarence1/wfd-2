@@ -49,6 +49,7 @@ import {
   reconcileTopDealsOrderBeforePurchase,
 } from './topdealsReconcileService.js';
 import { appendFulfillmentEvent, FULFILLMENT_EVENTS, logFulfillmentEvent } from './fulfillmentAudit.js';
+import { isEligibleForAutoProviderFulfill } from '../utils/providerAutoFulfill.js';
 
 export const getFreshPackage = async (packageId) => {
   const pkg = await Package.findById(packageId);
@@ -174,6 +175,10 @@ export const createOrder = async (validated, user, idempotencyKey) => {
       isFreeOrder: pricing.isFreeOrder,
       paymentReference,
       idempotencyKey: idempotencyKey || undefined,
+      metadata: {
+        autoProviderFulfill: true,
+        fulfillmentIdempotencyKey: reference,
+      },
     });
     return order;
   } catch (err) {
@@ -245,6 +250,11 @@ export const fulfillOrder = async (orderId, io, { adminResubmit = false } = {}) 
     await pre.save();
   }
 
+  // Never auto-POST old stuck orders — only newly tagged checkouts, or admin Resubmit.
+  if (pre && !adminResubmit && !isEligibleForAutoProviderFulfill(pre)) {
+    return pre;
+  }
+
   const claimed = await claimFulfillmentWithRetry(orderId);
   if (!claimed) {
     return Order.findById(orderId);
@@ -253,6 +263,9 @@ export const fulfillOrder = async (orderId, io, { adminResubmit = false } = {}) 
   try {
     const order = await Order.findById(orderId);
     if (!order || order.paymentStatus !== 'paid') return order;
+    if (!adminResubmit && !isEligibleForAutoProviderFulfill(order)) {
+      return order;
+    }
     if (repairStaleProviderSubmission(order)) {
       await order.save();
     }

@@ -3,13 +3,13 @@ import { fulfillOrder } from './orderService.js';
 import {
   hasConfirmedProviderSubmission,
   isOrderSubmittedToProvider,
-  isWithinProviderPurchaseCooldown,
 } from '../utils/fulfillmentLock.js';
+import { isEligibleForAutoProviderFulfill } from '../utils/providerAutoFulfill.js';
 import { QUEUE_REASONS } from '../utils/providerQueue.js';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** Wallet/config only — other failures retry via background/cron. */
+/** Wallet/config only — other failures retry via background for eligible new orders. */
 const NON_RETRYABLE_QUEUE_REASONS = new Set([
   QUEUE_REASONS.INSUFFICIENT_BALANCE,
   QUEUE_REASONS.FORWARDING_OFF,
@@ -18,9 +18,9 @@ const NON_RETRYABLE_QUEUE_REASONS = new Set([
 
 /**
  * Submit to TopDealsGH in-process right after payment.
- * Retries briefly when the first call gets no confirmed provider id.
+ * Only orders tagged autoProviderFulfill (new checkouts) are sent automatically.
  */
-export const fulfillPaidOrderImmediately = async (orderId, io, { maxAttempts = 2 } = {}) => {
+export const fulfillPaidOrderImmediately = async (orderId, io, { maxAttempts = 1 } = {}) => {
   let lastOrder = await Order.findById(orderId);
   if (!lastOrder || isOrderSubmittedToProvider(lastOrder) || hasConfirmedProviderSubmission(lastOrder)) {
     return lastOrder;
@@ -30,6 +30,11 @@ export const fulfillPaidOrderImmediately = async (orderId, io, { maxAttempts = 2
     || lastOrder.metadata?.manuallyFulfilled === true
     || lastOrder.metadata?.providerSubmissionLocked === true
   ) {
+    return lastOrder;
+  }
+
+  // Old stuck orders stay put — admin Resubmit only.
+  if (!isEligibleForAutoProviderFulfill(lastOrder)) {
     return lastOrder;
   }
 
@@ -44,16 +49,13 @@ export const fulfillPaidOrderImmediately = async (orderId, io, { maxAttempts = 2
       !lastOrder
       || isOrderSubmittedToProvider(lastOrder)
       || hasConfirmedProviderSubmission(lastOrder)
+      || !isEligibleForAutoProviderFulfill(lastOrder)
     ) {
       return lastOrder;
     }
 
     const queueReason = lastOrder.metadata?.queueReason;
     if (queueReason && NON_RETRYABLE_QUEUE_REASONS.has(queueReason)) {
-      return lastOrder;
-    }
-
-    if (attempt > 0 && isWithinProviderPurchaseCooldown(lastOrder)) {
       return lastOrder;
     }
 

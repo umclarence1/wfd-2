@@ -6,11 +6,11 @@ import {
   isWithinProviderPurchaseCooldown,
   shouldSkipAutoFulfillment,
 } from '../utils/fulfillmentLock.js';
+import { isEligibleForAutoProviderFulfill } from '../utils/providerAutoFulfill.js';
 import { QUEUE_REASONS } from '../utils/providerQueue.js';
 
 /**
- * Retry paid orders that never got a confirmed TopDeals id.
- * Cooldown + reconcile-before-purchase prevent duplicate POSTs.
+ * Retry only NEW paid orders (autoProviderFulfill). Old unsent orders are skipped.
  */
 export const retryQueuedProviderOrders = async (io, { limit = 25 } = {}) => {
   const queued = await findQueuedProviderOrders(limit);
@@ -30,6 +30,17 @@ export const retryQueuedProviderOrders = async (io, { limit = 25 } = {}) => {
 
   for (const order of orders) {
     try {
+      if (!isEligibleForAutoProviderFulfill(order)) {
+        results.push({
+          reference: order.reference,
+          status: order.deliveryStatus,
+          success: true,
+          skipped: true,
+          message: 'Legacy unsent order — not auto-submitted.',
+        });
+        continue;
+      }
+
       if (
         shouldSkipAutoFulfillment(order)
         || isOrderSubmittedToProvider(order)

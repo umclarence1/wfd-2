@@ -262,7 +262,8 @@ export const submitTopDealsGhDataBundle = async (creds, order, pkg) => {
       method: 'POST',
       path: '/purchase',
       data: payload,
-      timeout: 45000,
+      // Keep under Vercel maxDuration so payment + fulfill can finish in one request.
+      timeout: 28000,
     });
 
     const message = response.data?.message || '';

@@ -2,17 +2,27 @@ import Order from '../models/Order.js';
 import { isRealProviderReference } from '../utils/providerReference.js';
 import { MAX_NEVER_SUBMITTED_RETRIES } from '../utils/fulfillmentLock.js';
 
+/** Only new checkouts tagged for auto TopDeals send. */
+const autoFulfillFilter = {
+  'metadata.autoProviderFulfill': true,
+};
+
+const notSubmittedFilter = {
+  'metadata.fulfillmentInProgress': { $ne: true },
+  'metadata.fulfillmentAbandoned': { $ne: true },
+  'metadata.manuallyFulfilled': { $ne: true },
+  'metadata.providerSubmissionLocked': { $ne: true },
+  serviceType: { $in: ['data_bundle', 'afa_registration', 'result_checker'] },
+  retryCount: { $lt: MAX_NEVER_SUBMITTED_RETRIES },
+  ...autoFulfillFilter,
+};
+
 /** Paid orders stuck at processing without a real TopDeals/provider reference. */
 export const findUnsubmittedProviderOrders = async (limit = 25) => {
   const candidates = await Order.find({
     paymentStatus: 'paid',
     deliveryStatus: 'processing',
-    'metadata.fulfillmentInProgress': { $ne: true },
-    'metadata.fulfillmentAbandoned': { $ne: true },
-    'metadata.manuallyFulfilled': { $ne: true },
-    'metadata.providerSubmissionLocked': { $ne: true },
-    serviceType: { $in: ['data_bundle', 'afa_registration', 'result_checker'] },
-    retryCount: { $lt: MAX_NEVER_SUBMITTED_RETRIES },
+    ...notSubmittedFilter,
     $and: [
       {
         $or: [
@@ -30,7 +40,7 @@ export const findUnsubmittedProviderOrders = async (limit = 25) => {
       },
     ],
   })
-    .sort({ createdAt: 1 })
+    .sort({ createdAt: -1 })
     .limit(Math.max(limit * 4, 20));
 
   return candidates
@@ -49,14 +59,10 @@ export const findQueuedProviderOrders = (limit = 25) =>
     paymentStatus: 'paid',
     deliveryStatus: { $in: ['pending', 'processing'] },
     'metadata.queuedForProvider': true,
-    'metadata.fulfillmentInProgress': { $ne: true },
-    'metadata.fulfillmentAbandoned': { $ne: true },
-    'metadata.manuallyFulfilled': { $ne: true },
     'metadata.submittedToProvider': { $ne: true },
-    serviceType: { $in: ['data_bundle', 'afa_registration', 'result_checker'] },
-    retryCount: { $lt: MAX_NEVER_SUBMITTED_RETRIES },
+    ...notSubmittedFilter,
   })
-    .sort({ createdAt: 1 })
+    .sort({ createdAt: -1 })
     .limit(limit);
 
 /** Paid orders marked failed — retry fulfillment (e.g. transient TopDeals errors). */
@@ -64,13 +70,10 @@ export const findRetryableFailedOrders = (limit = 15) =>
   Order.find({
     paymentStatus: 'paid',
     deliveryStatus: 'failed',
-    'metadata.fulfillmentAbandoned': { $ne: true },
-    'metadata.manuallyFulfilled': { $ne: true },
     'metadata.submittedToProvider': { $ne: true },
-    retryCount: { $lt: MAX_NEVER_SUBMITTED_RETRIES },
-    serviceType: { $in: ['data_bundle', 'afa_registration', 'result_checker'] },
+    ...notSubmittedFilter,
   })
-    .sort({ updatedAt: 1 })
+    .sort({ createdAt: -1 })
     .limit(limit);
 
 export const getQueuedProviderOrders = (limit = 50) =>

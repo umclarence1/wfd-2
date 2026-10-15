@@ -94,6 +94,7 @@ export const createOrderFromPendingPayment = async (pending, { paystackTransacti
       paystackTransactionId: paystackTransactionId?.toString(),
       metadata: {
         fulfillmentIdempotencyKey: reference,
+        autoProviderFulfill: true,
       },
     });
     await PendingPayment.deleteOne({ _id: pending._id });
