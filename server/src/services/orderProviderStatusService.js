@@ -103,7 +103,7 @@ export const syncOrderProviderStatus = async (orderId, io) => {
   }
 
   const providerId = order.providerId || (await resolveProviderForCategory(order.category));
-  const apiReference = order.providerReference;
+  const apiReference = order.metadata?.topdealsOrderId || order.providerReference;
 
   const result = await checkProviderStatus(apiReference, order.category, providerId, order.reference);
   const alreadySent =
@@ -160,7 +160,7 @@ export const syncOrderProviderStatus = async (orderId, io) => {
     ...(order.metadata || {}),
     lastProviderSyncAt: new Date().toISOString(),
     lastProviderStatus: result.status,
-    ...(result.status === 'delivered' && mappedDelivery === 'processing'
+    ...(result.status === 'delivered'
       ? {
           providerReportedDelivered: true,
           providerReportedDeliveredAt: new Date().toISOString(),
@@ -208,14 +208,32 @@ export const syncOrderProviderStatus = async (orderId, io) => {
   };
 };
 
-/** Poll TopDealsGH (and other providers) for open paid orders and update local status. */
+/** Poll TopDealsGH for paid orders that still need a completion status. */
 export const syncOpenProviderOrders = async (io, { limit = 25 } = {}) => {
   const orders = await Order.find({
     paymentStatus: 'paid',
     serviceType: { $in: [...API_SERVICE_TYPES] },
-    deliveryStatus: { $in: OPEN_DELIVERY_STATUSES },
-    providerReference: { $exists: true, $nin: [null, ''] },
     'metadata.queuedForProvider': { $ne: true },
+    $and: [
+      {
+        $or: [
+          { 'metadata.topdealsOrderId': { $exists: true, $nin: [null, ''] } },
+          { providerReference: { $exists: true, $nin: [null, ''] } },
+        ],
+      },
+      {
+        $or: [
+          // Still open locally
+          { deliveryStatus: { $in: OPEN_DELIVERY_STATUSES } },
+          // Accepted locally but TopDeals has not reported completed yet (customer history stays Processing)
+          {
+            deliveryStatus: 'delivered',
+            'metadata.providerReportedDelivered': { $ne: true },
+            'metadata.lastProviderStatus': { $nin: ['delivered', 'completed', 'success'] },
+          },
+        ],
+      },
+    ],
   })
     .sort({ updatedAt: 1 })
     .limit(limit)

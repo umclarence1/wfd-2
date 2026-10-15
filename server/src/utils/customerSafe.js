@@ -79,6 +79,7 @@ export const sanitizeOrderForCustomer = (order, { includeChecker = false, includ
     totalAmount: order.totalAmount,
     paymentStatus: order.paymentStatus,
     deliveryStatus: resolveCustomerDeliveryStatus(order),
+    statusUpdatedAt: order.metadata?.lastProviderSyncAt || order.updatedAt || order.createdAt,
     createdAt: order.createdAt,
   };
 

@@ -4,7 +4,7 @@ import { useOnlineStatus } from '../context/OnlineContext';
 import { getOfflineAwareErrorMessage, OFFLINE_ACTION_MESSAGE } from '../utils/offline';
 import { useToast } from '../context/ToastContext';
 import { getPaymentReferencesFromCookie } from '../utils/orderHistoryCookie';
-import { Loader2 } from 'lucide-react';
+import { Loader2, RefreshCw } from 'lucide-react';
 
 const formatNetwork = (category) => {
   if (!category) return '—';
@@ -31,10 +31,17 @@ const formatTimePart = (createdAt) =>
     minute: '2-digit',
   });
 
-const formatStatusLabel = (value) => {
-  if (!value) return 'Processing';
-  return value.charAt(0).toUpperCase() + value.slice(1);
+const STATUS_LABELS = {
+  pending: 'Pending',
+  processing: 'Processing',
+  verification: 'Number verification',
+  delivered: 'Delivered',
+  failed: 'Failed',
+  refunded: 'Refunded',
+  cancelled: 'Cancelled',
 };
+
+const formatStatusLabel = (value) => STATUS_LABELS[value] || 'Processing';
 
 const deliveryBadgeClass = {
   pending: 'bg-amber-100 text-amber-800',
@@ -49,49 +56,97 @@ const deliveryBadgeClass = {
 export default function OrderHistoryPage() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const { toast } = useToast();
   const { isOnline } = useOnlineStatus();
 
   useEffect(() => {
-    const refs = getPaymentReferencesFromCookie();
-    if (!refs.length) {
-      setLoading(false);
-      return;
-    }
-
-    if (!isOnline) {
-      toast(OFFLINE_ACTION_MESSAGE, 'error');
-      setLoading(false);
-      return;
-    }
-
     let cancelled = false;
-    (async () => {
+
+    const loadOrders = async ({ silent = false } = {}) => {
+      const refs = getPaymentReferencesFromCookie();
+      if (!refs.length) {
+        if (!cancelled) {
+          setOrders([]);
+          setLoading(false);
+        }
+        return;
+      }
+
+      if (!isOnline) {
+        if (!silent && !cancelled) toast(OFFLINE_ACTION_MESSAGE, 'error');
+        if (!cancelled) setLoading(false);
+        return;
+      }
+
+      if (!cancelled) {
+        if (silent) setRefreshing(true);
+        else setLoading(true);
+      }
+
       try {
         const { data } = await api.post('/orders/history/by-references', {
           paymentReferences: refs,
-        }, { timeout: 60000 });
+        }, { timeout: 90000 });
         if (!cancelled) setOrders(data.orders || []);
       } catch (err) {
-        if (!cancelled) {
+        if (!silent && !cancelled) {
           toast(getOfflineAwareErrorMessage(err, 'Could not load order history.'), 'error');
         }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+          setRefreshing(false);
+        }
       }
-    })();
+    };
+
+    loadOrders();
+    const timer = setInterval(() => loadOrders({ silent: true }), 60_000);
 
     return () => {
       cancelled = true;
+      clearInterval(timer);
     };
   }, [isOnline, toast]);
 
+  const handleRefresh = async () => {
+    const refs = getPaymentReferencesFromCookie();
+    if (!refs.length || !isOnline) return;
+    setRefreshing(true);
+    try {
+      const { data } = await api.post('/orders/history/by-references', {
+        paymentReferences: refs,
+      }, { timeout: 90000 });
+      setOrders(data.orders || []);
+    } catch (err) {
+      toast(getOfflineAwareErrorMessage(err, 'Could not refresh status.'), 'error');
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   return (
     <div className="mx-auto max-w-5xl px-4 py-12">
-      <h1 className="section-title">Order History</h1>
-      <p className="section-subtitle">
-        Orders you complete on this device appear here automatically — no login required.
-      </p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="section-title">Order History</h1>
+          <p className="section-subtitle">
+            Delivery status updates from the network and shows here for orders on this device.
+          </p>
+        </div>
+        {orders.length > 0 && (
+          <button
+            type="button"
+            onClick={handleRefresh}
+            disabled={refreshing || loading || !isOnline}
+            className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-700 shadow-sm hover:bg-gray-50 disabled:opacity-50"
+          >
+            <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+            Refresh status
+          </button>
+        )}
+      </div>
 
       {loading && (
         <div className="mt-10 flex items-center justify-center gap-2 text-sm font-medium text-blue-700">

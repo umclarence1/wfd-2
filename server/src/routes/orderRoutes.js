@@ -230,52 +230,64 @@ router.post(
       .populate('checker', 'serialNumber pin checkerType')
       .populate('checkers', 'serialNumber pin checkerType');
 
-    // Refresh TopDeals delivery status for open orders so history shows provider status.
+    // Live-refresh TopDeals status (read-only) so history matches the network.
     const toRefresh = orders
       .filter((order) => {
         if (!['data_bundle', 'afa_registration'].includes(order.serviceType)) return false;
         const providerRef = order.metadata?.topdealsOrderId || order.providerReference;
-        return isRealProviderReference(providerRef, order.reference);
-      })
-      .slice(0, 15);
-
-    await Promise.all(
-      toRefresh.map(async (order) => {
-        try {
-          const providerRef = order.metadata?.topdealsOrderId || order.providerReference;
-          const result = await checkProviderStatus(
-            providerRef,
-            order.category,
-            order.providerId || PROVIDER_IDS.TOPDEALSGH,
-            order.reference
-          );
-          if (!result?.status || result.status === 'unknown' || result.status === 'queued') return;
-
-          order.metadata = {
-            ...(order.metadata || {}),
-            lastProviderSyncAt: new Date().toISOString(),
-            lastProviderStatus: result.status,
-            ...(result.status === 'delivered'
-              ? {
-                  providerReportedDelivered: true,
-                  providerReportedDeliveredAt: new Date().toISOString(),
-                }
-              : {}),
-          };
-          if (result.raw) {
-            order.providerResponse = {
-              ...(typeof order.providerResponse === 'object' && order.providerResponse
-                ? order.providerResponse
-                : {}),
-              lastStatusCheck: result.raw,
-            };
-          }
-          await order.save();
-        } catch (err) {
-          console.error('[ORDER_HISTORY] TopDeals status refresh failed:', order.reference, err.message);
+        if (!isRealProviderReference(providerRef, order.reference)) return false;
+        // Skip orders already confirmed delivered by TopDeals unless stale (>6h).
+        if (order.metadata?.providerReportedDelivered === true) {
+          const syncedAt = order.metadata?.lastProviderSyncAt
+            ? new Date(order.metadata.lastProviderSyncAt).getTime()
+            : 0;
+          return !syncedAt || Date.now() - syncedAt > 6 * 60 * 60 * 1000;
         }
+        return true;
       })
-    );
+      .slice(0, 30);
+
+    const concurrency = 5;
+    for (let i = 0; i < toRefresh.length; i += concurrency) {
+      const batch = toRefresh.slice(i, i + concurrency);
+      await Promise.all(
+        batch.map(async (order) => {
+          try {
+            const providerRef = order.metadata?.topdealsOrderId || order.providerReference;
+            const result = await checkProviderStatus(
+              providerRef,
+              order.category,
+              order.providerId || PROVIDER_IDS.TOPDEALSGH,
+              order.reference
+            );
+            if (!result?.status || result.status === 'unknown' || result.status === 'queued') return;
+
+            order.metadata = {
+              ...(order.metadata || {}),
+              lastProviderSyncAt: new Date().toISOString(),
+              lastProviderStatus: result.status,
+              ...(result.status === 'delivered'
+                ? {
+                    providerReportedDelivered: true,
+                    providerReportedDeliveredAt: new Date().toISOString(),
+                  }
+                : {}),
+            };
+            if (result.raw) {
+              order.providerResponse = {
+                ...(typeof order.providerResponse === 'object' && order.providerResponse
+                  ? order.providerResponse
+                  : {}),
+                lastStatusCheck: result.raw,
+              };
+            }
+            await order.save();
+          } catch (err) {
+            console.error('[ORDER_HISTORY] TopDeals status refresh failed:', order.reference, err.message);
+          }
+        })
+      );
+    }
 
     res.json({
       success: true,
