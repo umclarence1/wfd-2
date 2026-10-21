@@ -1,7 +1,7 @@
 import Order from '../models/Order.js';
 import { isRealProviderReference } from './providerReference.js';
 
-const LOCK_STALE_MS = 5 * 60 * 1000;
+const LOCK_STALE_MS = 90 * 1000;
 export const MAX_NEVER_SUBMITTED_RETRIES = 15;
 
 export const MANUAL_DELIVERY_SERVICE_TYPES = new Set(['data_bundle', 'afa_registration']);
@@ -30,14 +30,20 @@ export const shouldNeverResubmitToProvider = (order) => {
   return isOrderSubmittedToProvider(order);
 };
 
-/** TopDeals (or other provider) returned a trackable id — not our local ORD-/PAY- reference. */
+/** TopDeals (or other provider) returned a trackable id — not our local ORD-/PAY- reference.
+ * A success flag without that id is not enough; those orders still need a purchase POST. */
 export const hasConfirmedProviderSubmission = (order) => {
   if (!order) return false;
-  const rawId = order.providerResponse?.raw?.data?.orderId || order.providerResponse?.raw?.orderId;
-  if (order.providerResponse?.orderId || rawId || order.metadata?.topdealsOrderId) return true;
-  if (order.providerResponse?.success === true || order.providerResponse?.alreadySubmitted === true) return true;
-  if (isRealProviderReference(order.providerReference, order.reference)) return true;
-  return false;
+  const rawId = order.providerResponse?.raw?.data?.orderId
+    || order.providerResponse?.raw?.data?.id
+    || order.providerResponse?.raw?.orderId;
+  const candidates = [
+    order.metadata?.topdealsOrderId,
+    order.providerResponse?.orderId,
+    rawId,
+    order.providerReference,
+  ];
+  return candidates.some((value) => isRealProviderReference(value, order.reference));
 };
 
 /** Paid orders TopDeals already accepted should not stay on Processing. */

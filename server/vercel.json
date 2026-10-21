@@ -11,6 +11,12 @@
     }
   ],
   "routes": [{ "src": "/(.*)", "dest": "api/index.js" }],
+  "crons": [
+    {
+      "path": "/api/cron/retry-orders",
+      "schedule": "*/5 * * * *"
+    }
+  ],
   "env": {
     "NODE_ENV": "production"
   }

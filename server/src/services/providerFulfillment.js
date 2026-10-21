@@ -69,6 +69,25 @@ export const applyProviderFulfillment = (order, providerResponse, { successStatu
     const trackableRef =
       providerResponse.orderId
       || (candidateRef && isRealProviderReference(candidateRef, order.reference) ? candidateRef : null);
+    const accepted = Boolean(trackableRef && isRealProviderReference(trackableRef, order.reference))
+      || providerResponse.alreadySubmitted === true;
+
+    if (!accepted) {
+      order.deliveryStatus = 'processing';
+      order.metadata = {
+        ...(order.metadata || {}),
+        queuedForProvider: true,
+        pendingProviderRetry: true,
+        automaticRetryDisabled: false,
+        submittedToProvider: false,
+        providerSubmissionLocked: false,
+        manuallyFulfilled: false,
+        lastProviderError: providerResponse.message || 'TopDeals did not return an order id.',
+      };
+      order.failureReason = 'TopDeals did not return an order id. Will send again automatically.';
+      return { shouldNotify: false, queued: true };
+    }
+
     markOrderSubmittedToProvider(
       order,
       trackableRef,
@@ -81,6 +100,7 @@ export const applyProviderFulfillment = (order, providerResponse, { successStatu
       submittedToProvider: true,
       submittedToProviderAt: order.metadata?.submittedToProviderAt || new Date().toISOString(),
       pendingProviderRetry: false,
+      queuedForProvider: false,
     };
     markManualFulfillment(order);
     appendFulfillmentEvent(order, FULFILLMENT_EVENTS.PROVIDER_SUBMIT_OK, {

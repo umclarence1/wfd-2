@@ -46,7 +46,7 @@ test('success with TopDeals orderId marks submitted', () => {
   assert.equal(order.metadata.providerSubmissionLocked, true);
 });
 
-test('success without trackable id is still marked delivered', () => {
+test('success without a TopDeals id stays queued for another send', () => {
   const order = baseOrder();
   applyProviderFulfillment(
     order,
@@ -58,7 +58,8 @@ test('success without trackable id is still marked delivered', () => {
     },
     { successStatus: 'processing' }
   );
-  assert.equal(order.deliveryStatus, 'delivered');
-  assert.equal(order.metadata.providerSubmissionLocked, true);
-  assert.equal(order.metadata.submittedToProvider, true);
+  assert.equal(order.deliveryStatus, 'processing');
+  assert.equal(order.metadata.queuedForProvider, true);
+  assert.notEqual(order.metadata.providerSubmissionLocked, true);
+  assert.equal(isOrderSubmittedToProvider(order), false);
 });

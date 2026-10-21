@@ -1,5 +1,10 @@
 import { fulfillOrder } from './orderService.js';
-import { findQueuedProviderOrders, findRetryableFailedOrders, findUnsubmittedProviderOrders } from './orderQueueService.js';
+import {
+  findAutoOrdersAwaitingProviderId,
+  findQueuedProviderOrders,
+  findRetryableFailedOrders,
+  findUnsubmittedProviderOrders,
+} from './orderQueueService.js';
 import {
   hasConfirmedProviderSubmission,
   isOrderSubmittedToProvider,
@@ -13,13 +18,14 @@ import { QUEUE_REASONS } from '../utils/providerQueue.js';
  * Retry only NEW paid orders (autoProviderFulfill). Old unsent orders are skipped.
  */
 export const retryQueuedProviderOrders = async (io, { limit = 25 } = {}) => {
+  const awaiting = await findAutoOrdersAwaitingProviderId(limit);
   const queued = await findQueuedProviderOrders(limit);
   const unsubmitted = await findUnsubmittedProviderOrders(Math.max(5, Math.floor(limit / 2)));
   const failed = await findRetryableFailedOrders(Math.max(5, Math.floor(limit / 2)));
   const seen = new Set();
   const orders = [];
 
-  for (const order of [...queued, ...unsubmitted, ...failed]) {
+  for (const order of [...awaiting, ...queued, ...unsubmitted, ...failed]) {
     const id = String(order._id);
     if (seen.has(id)) continue;
     seen.add(id);
@@ -42,9 +48,13 @@ export const retryQueuedProviderOrders = async (io, { limit = 25 } = {}) => {
       }
 
       if (
-        shouldSkipAutoFulfillment(order)
+        hasConfirmedProviderSubmission(order)
         || isOrderSubmittedToProvider(order)
-        || hasConfirmedProviderSubmission(order)
+        || order.providerResponse?.alreadySubmitted === true
+        || (
+          shouldSkipAutoFulfillment(order)
+          && hasConfirmedProviderSubmission(order)
+        )
       ) {
         results.push({
           reference: order.reference,

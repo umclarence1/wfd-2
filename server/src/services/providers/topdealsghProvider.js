@@ -296,11 +296,12 @@ export const submitTopDealsGhDataBundle = async (creds, order, pkg) => {
       };
     }
 
-    const data = response.data?.data || {};
+    const data = response.data?.data || response.data || {};
+    const orderId = data.orderId || data.id || data.order_id || data._id || response.data?.orderId;
     return {
       success: true,
-      reference: data.orderId || order.reference,
-      orderId: data.orderId,
+      reference: orderId || order.reference,
+      orderId: orderId ? String(orderId) : undefined,
       message: message || 'Order submitted.',
       raw: response.data,
       providerId: 'topdealsgh',

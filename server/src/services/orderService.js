@@ -226,11 +226,13 @@ const blockRepeatProviderPurchase = async (order, { adminResubmit = false } = {}
 
 /** Provider HTTP calls must run outside MongoDB transactions (Atlas aborts long txns). */
 const markSentOrderDelivered = async (order) => {
-  if (!order || order.deliveryStatus === 'delivered') return order;
+  if (!order) return null;
+  // Delivered locally with no TopDeals id still needs a purchase. Only a real id stops the send.
+  if (order.deliveryStatus === 'delivered' && hasConfirmedProviderSubmission(order)) return order;
+  if (order.deliveryStatus === 'delivered') return null;
   const sent =
     hasConfirmedProviderSubmission(order)
     || isRealProviderReference(order.providerReference, order.reference)
-    || order.providerResponse?.success === true
     || order.providerResponse?.alreadySubmitted === true;
   if (!sent) return null;
   order.deliveryStatus = 'delivered';
@@ -255,9 +257,49 @@ export const fulfillOrder = async (orderId, io, { adminResubmit = false } = {}) 
     return pre;
   }
 
+  // A local Delivered mark without a TopDeals id never reached the API. Send it.
+  if (
+    pre
+    && !hasConfirmedProviderSubmission(pre)
+    && pre.providerResponse?.alreadySubmitted !== true
+    && (
+      pre.deliveryStatus === 'delivered'
+      || pre.metadata?.manuallyFulfilled === true
+      || pre.metadata?.providerSubmissionLocked === true
+    )
+  ) {
+    pre.deliveryStatus = 'processing';
+    pre.metadata = {
+      ...(pre.metadata || {}),
+      manuallyFulfilled: false,
+      providerSubmissionLocked: false,
+      submittedToProvider: false,
+      queuedForProvider: true,
+      pendingProviderRetry: true,
+    };
+    pre.markModified('metadata');
+    await pre.save();
+  }
+
   const claimed = await claimFulfillmentWithRetry(orderId);
   if (!claimed) {
-    return Order.findById(orderId);
+    const stuck = await Order.findById(orderId);
+    if (
+      stuck
+      && stuck.paymentStatus === 'paid'
+      && !hasConfirmedProviderSubmission(stuck)
+      && (adminResubmit || isEligibleForAutoProviderFulfill(stuck))
+      && stuck.metadata?.fulfillmentInProgress !== true
+    ) {
+      stuck.metadata = {
+        ...(stuck.metadata || {}),
+        queuedForProvider: true,
+        pendingProviderRetry: true,
+      };
+      stuck.markModified('metadata');
+      await stuck.save();
+    }
+    return stuck;
   }
 
   try {
@@ -330,15 +372,15 @@ export const fulfillOrder = async (orderId, io, { adminResubmit = false } = {}) 
           const walletQueue = isWalletOrConfigQueueReason(queueReason);
           order.metadata = {
             ...(order.metadata || {}),
-          queuedForProvider: false,
-          queueReason: walletQueue ? queueReason : undefined,
-          pendingProviderRetry: false,
-          automaticRetryDisabled: true,
-          providerId: PROVIDER_IDS.TOPDEALSGH,
-        };
-        order.failureReason = walletQueue
-          ? result.message || 'TopDeals wallet is low. Use admin Resubmit after the wallet is funded.'
-          : result.message || 'TopDeals did not accept the checker order. Use admin Resubmit to send it again.';
+            queuedForProvider: true,
+            queueReason: walletQueue ? queueReason : undefined,
+            pendingProviderRetry: true,
+            automaticRetryDisabled: false,
+            providerId: PROVIDER_IDS.TOPDEALSGH,
+          };
+          order.failureReason = walletQueue
+            ? result.message || 'TopDeals wallet is low. Will retry automatically after the wallet is funded.'
+            : result.message || 'TopDeals did not accept the checker order. Will retry automatically.';
           await order.save();
           await publishOrderUpdate(order, {
             io,

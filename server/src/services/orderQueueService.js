@@ -45,11 +45,38 @@ export const findUnsubmittedProviderOrders = async (limit = 25) => {
 
   return candidates
     .filter((order) => {
-      if (order.providerResponse?.success === true || order.providerResponse?.alreadySubmitted === true) {
-        return false;
-      }
+      if (order.providerResponse?.alreadySubmitted === true) return false;
       if (order.providerResponse?.orderId || order.metadata?.topdealsOrderId) return false;
-      return !isRealProviderReference(order.providerReference, order.reference);
+      if (isRealProviderReference(order.providerReference, order.reference)) return false;
+      return true;
+    })
+    .slice(0, limit);
+};
+
+/** New paid orders that still have no TopDeals id, including ones marked delivered too early. */
+export const findAutoOrdersAwaitingProviderId = async (limit = 20) => {
+  const candidates = await Order.find({
+    paymentStatus: 'paid',
+    'metadata.autoProviderFulfill': true,
+    'metadata.fulfillmentAbandoned': { $ne: true },
+    'metadata.fulfillmentInProgress': { $ne: true },
+    'providerResponse.alreadySubmitted': { $ne: true },
+    serviceType: { $in: ['data_bundle', 'afa_registration', 'result_checker'] },
+    retryCount: { $lt: MAX_NEVER_SUBMITTED_RETRIES },
+    $or: [
+      { 'metadata.topdealsOrderId': { $exists: false } },
+      { 'metadata.topdealsOrderId': null },
+      { 'metadata.topdealsOrderId': '' },
+    ],
+  })
+    .sort({ createdAt: -1 })
+    .limit(Math.max(limit * 3, 20));
+
+  return candidates
+    .filter((order) => {
+      if (isRealProviderReference(order.providerReference, order.reference)) return false;
+      if (isRealProviderReference(order.providerResponse?.orderId, order.reference)) return false;
+      return true;
     })
     .slice(0, limit);
 };
