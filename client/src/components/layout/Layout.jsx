@@ -5,6 +5,7 @@ import api from '../../api/client';
 import Navbar from './Navbar';
 import Footer from './Footer';
 import WhatsAppFloat from './WhatsAppFloat';
+import WhatsAppChannelPrompt from './WhatsAppChannelPrompt';
 import OfflineBanner from '../pwa/OfflineBanner';
 import { useSocket } from '../../hooks/useSocket';
 import { useSwipeBack } from '../../hooks/useSwipeBack';
@@ -36,6 +37,7 @@ export default function Layout() {
       </main>
       <Footer />
       <WhatsAppFloat />
+      <WhatsAppChannelPrompt />
     </div>
   );
 }
